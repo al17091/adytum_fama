@@ -18,7 +18,8 @@ go.work.sum
 # Next.js / Node.js
 node_modules/
 .next/
-out/
+web/out/*
+!web/out/.gitkeep
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

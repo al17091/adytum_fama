@@ -13,11 +13,27 @@ on:
 
 jobs:
   test:
-    name: Run Quality Gates (Go Collector & Datalake)
+    name: Run Quality Gates (Web UI, Go Engine & Datalake)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Build Next.js Web UI
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -32,3 +48,4 @@ jobs:
         run: |
           go build -o /dev/null ./cmd/collector
           go build -o /dev/null ./cmd/exporter
+          go build -o /dev/null ./cmd/server
