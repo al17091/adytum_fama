@@ -118,7 +118,7 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                     {(stat.foramen_modsec_blocks + stat.retis_modsec_blocks).toLocaleString()}
                   </div>
                   <div className="text-amber-400 font-bold mt-0.5">
-                    Hostile: {stat.malicious_ratio}%
+                    Intercepted: {stat.malicious_ratio}%
                   </div>
                 </div>
 
@@ -146,7 +146,7 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
             <div className="flex items-center gap-2">
               <Globe2 className="w-4 h-4 text-cyan-400" />
               <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200">
-                Top Threat Origin Origins (GeoIP)
+                Top Origin Geographies (GeoIP)
               </h3>
             </div>
             {targetCountry && (
@@ -246,13 +246,13 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
         </div>
       </div>
 
-      {/* Row 3: Observed Hostile IP Ranking & Recent Raw Block Log Table */}
+      {/* Row 3: Observed Intercepted Perimeter Probes & Activity Table */}
       <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800/80 backdrop-blur-md shadow-xl flex flex-col gap-4">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            <ShieldAlert className="w-4 h-4 text-cyan-400" />
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200">
-              Recent Mitigated Hostile Requests (Plain Text IP / Strictly Non-Linked)
+              Recent Intercepted Perimeter Probes (Plain Text IP / Strictly Non-Linked)
             </h3>
           </div>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
@@ -266,10 +266,11 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
               <tr className="border-b border-slate-800 text-slate-400 text-[11px] uppercase tracking-wider">
                 <th className="py-2.5 px-3">Time</th>
                 <th className="py-2.5 px-3">Defense Layer</th>
-                <th className="py-2.5 px-3">Attacker IP</th>
+                <th className="py-2.5 px-3">Observed IP</th>
+                <th className="py-2.5 px-3">Actor / Classification</th>
                 <th className="py-2.5 px-3">Location</th>
-                <th className="py-2.5 px-3">ASN / Org</th>
-                <th className="py-2.5 px-3">Threat Category</th>
+                <th className="py-2.5 px-3">ASN / Organization</th>
+                <th className="py-2.5 px-3">Vector</th>
                 <th className="py-2.5 px-3">User-Agent</th>
               </tr>
             </thead>
@@ -295,9 +296,35 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                   ? "AWS WAF Edge"
                   : evt.layer;
 
-                const timeStr = new Date(evt.observed_at).toLocaleTimeString("ja-JP", {
+                const timeStr = new Date(evt.observed_at).toLocaleTimeString("en-GB", {
                   hour12: false,
                 });
+
+                // Classification badge
+                let actorBadge = (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800/80 text-slate-400 border border-slate-700/60">
+                    UNMAPPED
+                  </span>
+                );
+                if (evt.actor_type === "RESEARCH_SCANNER") {
+                  actorBadge = (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/70 border border-blue-500/60 text-blue-300">
+                      RESEARCH: {evt.actor_name || "Scanner"}
+                    </span>
+                  );
+                } else if (evt.actor_type === "SEARCH_ENGINE") {
+                  actorBadge = (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-950/70 border border-emerald-500/60 text-emerald-300">
+                      SEARCH: {evt.actor_name || "Bot"}
+                    </span>
+                  );
+                } else if (evt.actor_type === "BOT_SCANNER") {
+                  actorBadge = (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 border border-amber-500/60 text-amber-300">
+                      PROBE BOT
+                    </span>
+                  );
+                }
 
                 return (
                   <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
@@ -315,11 +342,16 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                       </span>
                     </td>
 
-                    {/* Attacker IP: Rendered strictly in <code>, NEVER as an anchor! */}
+                    {/* Observed IP: Rendered strictly in <code>, NEVER as an anchor! */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <code className="text-slate-100 font-bold bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800 select-text">
                         {evt.src_ip}
                       </code>
+                    </td>
+
+                    {/* Actor / Classification */}
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      {actorBadge}
                     </td>
 
                     {/* Location */}
@@ -336,10 +368,10 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                       {evt.as_org || "Unknown"}
                     </td>
 
-                    {/* Threat Category */}
+                    {/* Vector */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span className="text-rose-400 font-semibold">
-                        {evt.threat_category || "ATTACK"}
+                      <span className="text-cyan-300 font-semibold">
+                        {evt.threat_category || "RAW_IP_RECON"}
                       </span>
                     </td>
 

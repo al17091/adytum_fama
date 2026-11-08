@@ -51,12 +51,12 @@ export const KPIOverlay: React.FC<KPIOverlayProps> = ({
           <div
             className="h-full bg-rose-500 transition-all duration-500"
             style={{ width: `${maliciousRatio}%` }}
-            title={`Hostile: ${maliciousRatio}%`}
+            title={`Intercepted: ${maliciousRatio}%`}
           />
         </div>
       </div>
 
-      {/* Legitimate vs Hostile Dual Cards */}
+      {/* Legitimate vs Intercepted Dual Cards */}
       <div className="grid grid-cols-2 gap-2.5">
         {/* Legitimate Traffic */}
         <div className="p-3 rounded-xl bg-slate-900/80 backdrop-blur-md border border-slate-800/80">
@@ -72,17 +72,17 @@ export const KPIOverlay: React.FC<KPIOverlayProps> = ({
           </div>
         </div>
 
-        {/* Mitigated Malicious Traffic */}
+        {/* Intercepted Perimeter Probes */}
         <div className="p-3 rounded-xl bg-slate-900/80 backdrop-blur-md border border-rose-950/60 shadow-inner">
           <div className="flex items-center gap-1.5 text-[11px] text-rose-400 font-mono mb-1">
             <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
-            <span>Mitigated</span>
+            <span>Intercepted</span>
           </div>
           <div className="text-lg font-bold font-mono text-rose-400 glow-modsec">
             {mitigatedRequests.toLocaleString()}
           </div>
           <div className="text-[10px] font-mono text-rose-300/80 font-semibold mt-0.5">
-            {maliciousRatio}% hostile
+            {maliciousRatio}% mitigated
           </div>
         </div>
       </div>

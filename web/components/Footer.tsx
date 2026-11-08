@@ -43,6 +43,16 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
+        {/* Notice & Disclaimer */}
+        <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800/80 text-[11px] text-slate-400 leading-relaxed">
+          <span className="text-cyan-400 font-bold mr-1.5">[Notice & Disclaimer]</span>
+          Observed IP addresses displayed across this dashboard reflect unsolicited perimeter probes,
+          broad internet background port scanning, or layer-7 WAF mitigation triggers. Inclusion in this
+          telemetry does not imply definitive malicious intent or attribution to the registered entity,
+          and may encompass benign academic / cybersecurity research scanners (e.g., Censys, Shadowserver),
+          search engine crawlers, or transient dynamic ISP allocations.
+        </div>
+
         {/* Disclaimer & Attributions */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-4 border-t border-slate-800/60 pt-6 text-[11px]">
           <div className="flex items-center gap-2 text-slate-400">

@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useMemo } from "react";
 import { PublicBlockEvent } from "../types";
+import { WORLD_CONTINENTS } from "./worldData";
 
 interface ThreatMapProps {
   events: PublicBlockEvent[];
@@ -14,24 +15,6 @@ interface ThreatMapProps {
 // Tokyo Edge coordinates (RFC-style abstracted defense perimeter)
 const TOKYO_LAT = 35.6895;
 const TOKYO_LON = 139.6917;
-
-// Simplified major continent sample dots (lat, lon) for globe surface rendering
-const CONTINENT_POINTS: [number, number][] = [
-  // North America
-  [45, -100], [40, -80], [35, -115], [55, -110], [60, -125], [30, -90], [25, -100], [50, -70],
-  // South America
-  [-10, -55], [-20, -60], [-30, -65], [5, -70], [-15, -45], [-45, -70],
-  // Europe
-  [50, 10], [45, 5], [55, 20], [60, 15], [40, -3], [40, 25], [60, 30],
-  // Asia
-  [35, 105], [45, 90], [30, 80], [20, 78], [15, 100], [55, 80], [60, 100], [50, 120], [35, 120],
-  // Japan & East Asia
-  [36, 138], [38, 140], [34, 135], [37, 127], [31, 121],
-  // Africa
-  [0, 20], [15, 15], [-15, 25], [-30, 25], [10, 35], [5, 0], [25, 30],
-  // Oceania
-  [-25, 135], [-33, 150], [-20, 140], [-30, 115], [-42, 172],
-];
 
 export const ThreatMap: React.FC<ThreatMapProps> = ({
   events,
@@ -167,8 +150,8 @@ export const ThreatMap: React.FC<ThreatMapProps> = ({
 
       {/* Active Arcs Count */}
       <div className="absolute bottom-4 left-4 z-10 px-3 py-1.5 rounded-lg bg-slate-900/80 backdrop-blur-md border border-slate-800 text-xs font-mono text-slate-400">
-        Active Threat Vectors:{" "}
-        <span className="text-rose-400 font-bold">{visibleEvents.length}</span>
+        Active Intercept Vectors:{" "}
+        <span className="text-cyan-400 font-bold">{visibleEvents.length}</span>
       </div>
     </div>
   );
@@ -277,15 +260,29 @@ function render3DGlobe(
     ctx.stroke();
   }
 
-  // 4. Continent Points / Dots
-  ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
-  for (const [clat, clon] of CONTINENT_POINTS) {
-    const cp = project3D(clat, clon, rotation.yaw, rotation.pitch, R, cx, cy);
-    if (cp.z > 0) {
-      ctx.beginPath();
-      ctx.arc(cp.x, cp.y, 1.8, 0, Math.PI * 2);
-      ctx.fill();
+  // 4. Continent Coastlines & Landmass Contours
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.4)";
+  ctx.lineWidth = 1.0;
+  ctx.fillStyle = "rgba(15, 23, 42, 0.55)";
+
+  for (const poly of WORLD_CONTINENTS) {
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < poly.length; i++) {
+      const [lat, lon] = poly[i];
+      const pt = project3D(lat, lon, rotation.yaw, rotation.pitch, R, cx, cy);
+      if (pt.z > 0) {
+        if (!started) {
+          ctx.moveTo(pt.x, pt.y);
+          started = true;
+        } else {
+          ctx.lineTo(pt.x, pt.y);
+        }
+      } else {
+        started = false;
+      }
     }
+    ctx.stroke();
   }
 
   // 5. Tokyo Target Hub Point
@@ -400,12 +397,28 @@ function render2DMap(
     ctx.stroke();
   }
 
-  // 2. Continents Points
-  ctx.fillStyle = "rgba(148, 163, 184, 0.25)";
-  for (const [lat, lon] of CONTINENT_POINTS) {
+  // 2. Continents Landmass Polygons & Coastlines
+  ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
+  ctx.lineWidth = 1.2;
+
+  for (const poly of WORLD_CONTINENTS) {
     ctx.beginPath();
-    ctx.arc(toX(lon), toY(lat), 2, 0, Math.PI * 2);
+    let first = true;
+    for (let i = 0; i < poly.length; i++) {
+      const [lat, lon] = poly[i];
+      const x = toX(lon);
+      const y = toY(lat);
+      if (first) {
+        ctx.moveTo(x, y);
+        first = false;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.closePath();
     ctx.fill();
+    ctx.stroke();
   }
 
   // 3. Tokyo Hub

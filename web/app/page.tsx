@@ -82,7 +82,7 @@ export default function GuardInfoPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col">
-        {/* Section 1: Hero Threat Map Stage (约 65-75vh) */}
+        {/* Section 1: Hero Threat Map Stage (approx. 65-75vh) */}
         <section className="relative w-full max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-2 flex flex-col gap-3">
           <div className="relative w-full min-h-[500px] lg:min-h-[600px] flex items-center justify-center">
             {/* 3D/2D Threat Map Canvas */}
