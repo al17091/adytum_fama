@@ -120,6 +120,31 @@ func (c *MetricsClient) FetchHourlyCloudFrontMetrics(ctx context.Context, distID
 	return metrics, nil
 }
 
+// WAFEventConnector implements sources.EventConnector for AWS WAF sampled blocked requests
+type WAFEventConnector struct {
+	client    *MetricsClient
+	webACLArn string
+}
+
+// NewWAFEventConnector creates a connector wrapping MetricsClient and target WebACL
+func NewWAFEventConnector(client *MetricsClient, webACLArn string) *WAFEventConnector {
+	return &WAFEventConnector{client: client, webACLArn: webACLArn}
+}
+
+// Name returns connector identifier
+func (w *WAFEventConnector) Name() string {
+	return "aws_waf"
+}
+
+// FetchEvents implements sources.EventConnector
+func (w *WAFEventConnector) FetchEvents(ctx context.Context, window time.Duration) ([]models.BlockEvent, error) {
+	minutes := int(window.Minutes())
+	if minutes <= 0 {
+		minutes = 60
+	}
+	return w.client.FetchSampledBlockedRequests(ctx, w.webACLArn, minutes)
+}
+
 // FetchSampledBlockedRequests retrieves sample malicious requests blocked at the CloudFront edge
 func (c *MetricsClient) FetchSampledBlockedRequests(ctx context.Context, webACLArn string, windowMinutes int) ([]models.BlockEvent, error) {
 	end := time.Now().UTC()

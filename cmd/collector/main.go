@@ -11,6 +11,8 @@ import (
 	"github.com/al17091/adytum_fama/pkg/geoip"
 	"github.com/al17091/adytum_fama/pkg/models"
 	"github.com/al17091/adytum_fama/pkg/rdns"
+	"github.com/al17091/adytum_fama/pkg/sources"
+	"github.com/al17091/adytum_fama/pkg/sources/apache"
 	"github.com/al17091/adytum_fama/pkg/sources/awsmetrics"
 	"github.com/al17091/adytum_fama/pkg/sources/prometheus"
 	"github.com/al17091/adytum_fama/pkg/sources/wazuh"
@@ -54,7 +56,10 @@ func main() {
 
 	rdnsTagger := rdns.NewTagger()
 
-	// 3. Fetch Wazuh Indexer block events
+	// 3. Register Event Connectors (Wazuh, AWS WAF, Apache, etc.)
+	var eventConnectors []sources.EventConnector
+
+	// Wazuh Connector
 	wazuhEndpoint := getEnv("WAZUH_ENDPOINT", "https://wazuh-indexer.wazuh.svc:9200")
 	wazuhUser := getEnv("WAZUH_USERNAME", "adytum_fama_reader")
 	wazuhPass := getEnv("WAZUH_PASSWORD", "")
@@ -63,16 +68,46 @@ func main() {
 		Username: wazuhUser,
 		Password: wazuhPass,
 	})
+	eventConnectors = append(eventConnectors, wazuhClient)
 
-	log.Println("[INFO] Fetching recent block events from Wazuh Indexer...")
-	wazuhEvents, err := wazuhClient.FetchRecentEvents(ctx, 70)
-	if err != nil {
-		log.Printf("[WARN] Failed to fetch Wazuh events: %v", err)
+	// AWS WAF Connector (if AWS auth & WAF WebACL configured)
+	awsCfg, err := awsauth.LoadAWSConfig(ctx, awsauth.ConfigOptions{})
+	var awsMetricsClient *awsmetrics.MetricsClient
+	if err == nil {
+		awsMetricsClient = awsmetrics.NewMetricsClient(awsCfg)
+		webACLArn := getEnv("WAF_WEBACL_ARN", "")
+		if webACLArn != "" {
+			eventConnectors = append(eventConnectors, awsmetrics.NewWAFEventConnector(awsMetricsClient, webACLArn))
+		}
 	} else {
-		log.Printf("[INFO] Retrieved %d events from Wazuh.", len(wazuhEvents))
+		log.Printf("[WARN] AWS SDK init skipped or failed: %v", err)
 	}
 
-	// 4. Fetch Prometheus gateway total request counters
+	// Optional Apache Connector (if log path configured)
+	apacheLogPath := getEnv("APACHE_LOG_PATH", "")
+	if apacheLogPath != "" {
+		eventConnectors = append(eventConnectors, apache.NewConnector(apache.Config{
+			LogPath:     apacheLogPath,
+			GatewayNode: getEnv("APACHE_GATEWAY_NODE", "apache-gateway"),
+		}))
+	}
+
+	// 4. Ingest events uniformly across all registered connectors
+	collectionWindow := 70 * time.Minute
+	var allEvents []models.BlockEvent
+
+	for _, conn := range eventConnectors {
+		log.Printf("[INFO] Fetching events from connector [%s]...", conn.Name())
+		evts, err := conn.FetchEvents(ctx, collectionWindow)
+		if err != nil {
+			log.Printf("[WARN] Connector [%s] failed: %v", conn.Name(), err)
+			continue
+		}
+		log.Printf("[INFO] Connector [%s] retrieved %d events.", conn.Name(), len(evts))
+		allEvents = append(allEvents, evts...)
+	}
+
+	// 5. Fetch Traffic Metrics (Prometheus + CloudWatch)
 	promEndpoint := getEnv("PROMETHEUS_ENDPOINT", "http://kube-prometheus-stack-prometheus.monitoring.svc:9090")
 	promClient := prometheus.NewClient(prometheus.Config{Endpoint: promEndpoint})
 
@@ -82,17 +117,10 @@ func main() {
 		log.Printf("[WARN] Failed to fetch Prometheus gateway totals: %v", err)
 	}
 
-	// 5. Fetch AWS CloudWatch metrics & WAF samples
-	awsCfg, err := awsauth.LoadAWSConfig(ctx, awsauth.ConfigOptions{})
-	var awsWAFEvents []models.BlockEvent
 	var cfMetrics awsmetrics.CloudFrontMetrics
-
-	if err == nil {
-		awsMetricsClient := awsmetrics.NewMetricsClient(awsCfg)
+	if awsMetricsClient != nil {
 		distID := getEnv("CLOUDFRONT_DISTRIBUTION_ID", "")
 		webACLName := getEnv("WAF_WEBACL_NAME", "WWW-WebACL")
-		webACLArn := getEnv("WAF_WEBACL_ARN", "")
-
 		now := time.Now().UTC()
 		oneHourAgo := now.Add(-1 * time.Hour)
 
@@ -102,19 +130,9 @@ func main() {
 				log.Printf("[WARN] Failed to fetch CloudWatch metrics: %v", err)
 			}
 		}
-
-		if webACLArn != "" {
-			awsWAFEvents, err = awsMetricsClient.FetchSampledBlockedRequests(ctx, webACLArn, 70)
-			if err != nil {
-				log.Printf("[WARN] Failed to fetch WAF sampled requests: %v", err)
-			}
-		}
-	} else {
-		log.Printf("[WARN] AWS SDK init skipped or failed: %v", err)
 	}
 
 	// 6. Enrich events with GeoIP and rDNS
-	allEvents := append(wazuhEvents, awsWAFEvents...)
 	for i := range allEvents {
 		e := &allEvents[i]
 
@@ -156,7 +174,7 @@ func main() {
 	retis444 := int64(0)
 	retisModSec := int64(0)
 
-	for _, e := range wazuhEvents {
+	for _, e := range allEvents {
 		switch e.Layer {
 		case "HTTP_444":
 			if e.GatewayNode == "retis" {
@@ -164,7 +182,7 @@ func main() {
 			} else {
 				foramen444++
 			}
-		case "MODSEC_BLOCK":
+		case "MODSEC_BLOCK", "APACHE_403":
 			if e.GatewayNode == "retis" {
 				retisModSec++
 			} else {

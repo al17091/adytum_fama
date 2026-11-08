@@ -45,6 +45,20 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
+// Name returns the identifier of this connector
+func (c *Client) Name() string {
+	return "wazuh"
+}
+
+// FetchEvents implements sources.EventConnector
+func (c *Client) FetchEvents(ctx context.Context, window time.Duration) ([]models.BlockEvent, error) {
+	minutes := int(window.Minutes())
+	if minutes <= 0 {
+		minutes = 60
+	}
+	return c.FetchRecentEvents(ctx, minutes)
+}
+
 // FetchRecentEvents retrieves HTTP 444 and ModSecurity block/detect events for the past windowMinutes
 func (c *Client) FetchRecentEvents(ctx context.Context, windowMinutes int) ([]models.BlockEvent, error) {
 	timeLimit := time.Now().UTC().Add(-time.Duration(windowMinutes) * time.Minute).Format(time.RFC3339)
