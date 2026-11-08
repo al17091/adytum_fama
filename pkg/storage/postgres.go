@@ -1,0 +1,301 @@
+package storage
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/al17091/adytum_fama/pkg/models"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// DB manages PostgreSQL connections and partitioned storage
+type DB struct {
+	pool *pgxpool.Pool
+}
+
+// NewDB initializes connection pool to CloudNativePG PostgreSQL
+func NewDB(ctx context.Context, dsn string) (*DB, error) {
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid postgres dsn: %w", err)
+	}
+
+	config.MaxConns = 10
+	config.MinConns = 2
+	config.MaxConnLifetime = 30 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+
+	if err := pool.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping postgres: %w", err)
+	}
+
+	return &DB{pool: pool}, nil
+}
+
+// Close terminates connection pool
+func (db *DB) Close() {
+	if db.pool != nil {
+		db.pool.Close()
+	}
+}
+
+// InitSchema sets up partitioned events table, traffic stats, and snapshot tables
+func (db *DB) InitSchema(ctx context.Context) error {
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS security_block_events (
+			event_id VARCHAR(64) NOT NULL,
+			observed_at TIMESTAMPTZ NOT NULL,
+			layer VARCHAR(32) NOT NULL,
+			is_blocked BOOLEAN NOT NULL DEFAULT true,
+			gateway_node VARCHAR(32),
+			src_ip VARCHAR(45) NOT NULL,
+			country_code VARCHAR(4),
+			country_name VARCHAR(64),
+			city_name VARCHAR(64),
+			latitude REAL,
+			longitude REAL,
+			asn INT,
+			as_org VARCHAR(128),
+			reverse_dns VARCHAR(255),
+			actor_type VARCHAR(32),
+			actor_name VARCHAR(64),
+			http_method VARCHAR(16),
+			http_protocol VARCHAR(16),
+			tls_protocol VARCHAR(16),
+			request_host VARCHAR(255),
+			request_uri TEXT,
+			user_agent TEXT,
+			threat_category VARCHAR(64),
+			waf_rule_ids TEXT[],
+			waf_anomaly_score INT DEFAULT 0,
+			PRIMARY KEY (event_id, observed_at)
+		) PARTITION BY RANGE (observed_at);`,
+
+		`CREATE TABLE IF NOT EXISTS hourly_traffic_stats (
+			bucket_time TIMESTAMPTZ PRIMARY KEY,
+			cf_requests BIGINT NOT NULL DEFAULT 0,
+			cf_bytes_downloaded BIGINT NOT NULL DEFAULT 0,
+			aws_waf_blocked BIGINT NOT NULL DEFAULT 0,
+			foramen_444_drops BIGINT NOT NULL DEFAULT 0,
+			foramen_modsec_blocks BIGINT NOT NULL DEFAULT 0,
+			retis_total_requests BIGINT NOT NULL DEFAULT 0,
+			retis_444_drops BIGINT NOT NULL DEFAULT 0,
+			retis_modsec_blocks BIGINT NOT NULL DEFAULT 0,
+			total_requests BIGINT NOT NULL DEFAULT 0,
+			mitigated_requests BIGINT NOT NULL DEFAULT 0,
+			legitimate_requests BIGINT NOT NULL DEFAULT 0,
+			malicious_ratio DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS dashboard_snapshots (
+			window_type VARCHAR(16) PRIMARY KEY, -- '24h' or '7d'
+			payload JSONB NOT NULL,
+			generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+	}
+
+	for _, q := range queries {
+		if _, err := db.pool.Exec(ctx, q); err != nil {
+			return fmt.Errorf("failed executing schema query: %w", err)
+		}
+	}
+
+	// Pre-create partitions for today, past 8 days, and next 2 days
+	now := time.Now().UTC()
+	for i := -8; i <= 2; i++ {
+		target := now.AddDate(0, 0, i)
+		if err := db.EnsurePartitionForDate(ctx, target); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// EnsurePartitionForDate creates a daily partition table if not exists
+func (db *DB) EnsurePartitionForDate(ctx context.Context, targetDate time.Time) error {
+	utc := targetDate.UTC()
+	start := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+
+	partName := fmt.Sprintf("security_block_events_%s", start.Format("2006_01_02"))
+	query := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s
+		PARTITION OF security_block_events
+		FOR VALUES FROM ('%s') TO ('%s');`,
+		partName, start.Format("2006-01-02 15:04:05-07"), end.Format("2006-01-02 15:04:05-07"),
+	)
+
+	_, err := db.pool.Exec(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to create partition %s: %w", partName, err)
+	}
+	return nil
+}
+
+// InsertBlockEvents inserts a batch of block events, ignoring duplicates
+func (db *DB) InsertBlockEvents(ctx context.Context, events []models.BlockEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	batch := &pgx.Batch{}
+	query := `INSERT INTO security_block_events (
+		event_id, observed_at, layer, is_blocked, gateway_node, src_ip,
+		country_code, country_name, city_name, latitude, longitude,
+		asn, as_org, reverse_dns, actor_type, actor_name,
+		http_method, http_protocol, tls_protocol, request_host,
+		request_uri, user_agent, threat_category, waf_rule_ids, waf_anomaly_score
+	) VALUES (
+		$1, $2, $3, $4, $5, $6,
+		$7, $8, $9, $10, $11,
+		$12, $13, $14, $15, $16,
+		$17, $18, $19, $20,
+		$21, $22, $23, $24, $25
+	) ON CONFLICT (event_id, observed_at) DO NOTHING;`
+
+	for _, e := range events {
+		batch.Queue(query,
+			e.EventID, e.ObservedAt, e.Layer, e.IsBlocked, e.GatewayNode, e.SrcIP,
+			e.CountryCode, e.CountryName, e.CityName, e.Latitude, e.Longitude,
+			e.ASN, e.ASOrg, e.ReverseDNS, e.ActorType, e.ActorName,
+			e.HTTPMethod, e.HTTPProtocol, e.TLSProtocol, e.RequestHost,
+			e.RequestURI, e.UserAgent, e.ThreatCategory, e.WAFRuleIDs, e.WAFAnomalyScore,
+		)
+	}
+
+	br := db.pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	for range events {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("failed inserting block event batch: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// UpsertHourlyStats stores calculated hourly metrics
+func (db *DB) UpsertHourlyStats(ctx context.Context, stats models.HourlyTrafficStats) error {
+	query := `INSERT INTO hourly_traffic_stats (
+		bucket_time, cf_requests, cf_bytes_downloaded, aws_waf_blocked,
+		foramen_444_drops, foramen_modsec_blocks, retis_total_requests,
+		retis_444_drops, retis_modsec_blocks, total_requests,
+		mitigated_requests, legitimate_requests, malicious_ratio, updated_at
+	) VALUES (
+		$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW()
+	) ON CONFLICT (bucket_time) DO UPDATE SET
+		cf_requests = EXCLUDED.cf_requests,
+		cf_bytes_downloaded = EXCLUDED.cf_bytes_downloaded,
+		aws_waf_blocked = EXCLUDED.aws_waf_blocked,
+		foramen_444_drops = EXCLUDED.foramen_444_drops,
+		foramen_modsec_blocks = EXCLUDED.foramen_modsec_blocks,
+		retis_total_requests = EXCLUDED.retis_total_requests,
+		retis_444_drops = EXCLUDED.retis_444_drops,
+		retis_modsec_blocks = EXCLUDED.retis_modsec_blocks,
+		total_requests = EXCLUDED.total_requests,
+		mitigated_requests = EXCLUDED.mitigated_requests,
+		legitimate_requests = EXCLUDED.legitimate_requests,
+		malicious_ratio = EXCLUDED.malicious_ratio,
+		updated_at = NOW();`
+
+	_, err := db.pool.Exec(ctx, query,
+		stats.BucketTime, stats.CFRequests, stats.CFBytesDownloaded, stats.AWSWAFBlocked,
+		stats.Foramen444Drops, stats.ForamenModSecBlocks, stats.RetisTotalRequests,
+		stats.Retis444Drops, stats.RetisModSecBlocks, stats.TotalRequests,
+		stats.MitigatedRequests, stats.LegitimateRequests, stats.MaliciousRatio,
+	)
+	if err != nil {
+		return fmt.Errorf("failed upserting hourly stats: %w", err)
+	}
+	return nil
+}
+
+// GetEventsForDate extracts all events within a UTC day for Parquet compaction
+func (db *DB) GetEventsForDate(ctx context.Context, date time.Time) ([]models.BlockEvent, error) {
+	utc := date.UTC()
+	start := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+
+	query := `SELECT
+		event_id, observed_at, layer, is_blocked, COALESCE(gateway_node, ''),
+		src_ip, COALESCE(country_code, 'XX'), COALESCE(country_name, 'Unknown'),
+		COALESCE(city_name, 'Unknown'), COALESCE(latitude, 0), COALESCE(longitude, 0),
+		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'), COALESCE(reverse_dns, ''),
+		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
+		COALESCE(http_method, ''), COALESCE(http_protocol, ''), COALESCE(tls_protocol, ''),
+		COALESCE(request_host, ''), COALESCE(request_uri, ''), COALESCE(user_agent, ''),
+		COALESCE(threat_category, ''), COALESCE(waf_rule_ids, ARRAY[]::TEXT[]), COALESCE(waf_anomaly_score, 0)
+	FROM security_block_events
+	WHERE observed_at >= $1 AND observed_at < $2
+	ORDER BY observed_at ASC;`
+
+	rows, err := db.pool.Query(ctx, query, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying events for %s: %w", start.Format("2006-01-02"), err)
+	}
+	defer rows.Close()
+
+	var events []models.BlockEvent
+	for rows.Next() {
+		var e models.BlockEvent
+		err := rows.Scan(
+			&e.EventID, &e.ObservedAt, &e.Layer, &e.IsBlocked, &e.GatewayNode,
+			&e.SrcIP, &e.CountryCode, &e.CountryName, &e.CityName, &e.Latitude, &e.Longitude,
+			&e.ASN, &e.ASOrg, &e.ReverseDNS, &e.ActorType, &e.ActorName,
+			&e.HTTPMethod, &e.HTTPProtocol, &e.TLSProtocol, &e.RequestHost,
+			&e.RequestURI, &e.UserAgent, &e.ThreatCategory, &e.WAFRuleIDs, &e.WAFAnomalyScore,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed scanning event row: %w", err)
+		}
+		events = append(events, e)
+	}
+
+	return events, nil
+}
+
+// SaveSnapshot caches the pre-built JSON snapshot for instant /guardinfo delivery
+func (db *DB) SaveSnapshot(ctx context.Context, window string, payload models.SnapshotPayload) error {
+	jsonBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed marshaling snapshot json: %w", err)
+	}
+
+	query := `INSERT INTO dashboard_snapshots (window_type, payload, generated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (window_type) DO UPDATE SET
+			payload = EXCLUDED.payload,
+			generated_at = NOW();`
+
+	_, err = db.pool.Exec(ctx, query, window, jsonBytes)
+	if err != nil {
+		return fmt.Errorf("failed saving snapshot (%s): %w", window, err)
+	}
+	return nil
+}
+
+// GetSnapshot retrieves the cached JSON payload
+func (db *DB) GetSnapshot(ctx context.Context, window string) (*models.SnapshotPayload, error) {
+	var jsonBytes []byte
+	query := `SELECT payload FROM dashboard_snapshots WHERE window_type = $1;`
+
+	err := db.pool.QueryRow(ctx, query, window).Scan(&jsonBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload models.SnapshotPayload
+	if err := json.Unmarshal(jsonBytes, &payload); err != nil {
+		return nil, fmt.Errorf("failed unmarshaling snapshot payload: %w", err)
+	}
+	return &payload, nil
+}
