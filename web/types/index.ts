@@ -11,6 +11,7 @@ export interface PublicBlockEvent {
   as_org: string;
   actor_type: string;
   actor_name: string;
+  classification: string; // MALICIOUS, SUSPICIOUS, -
   http_method: string;
   threat_category: string;
   user_agent: string;

@@ -23,6 +23,7 @@ type BlockEvent struct {
 	ReverseDNS      string    `json:"reverse_dns" parquet:"reverse_dns"`
 	ActorType       string    `json:"actor_type" parquet:"actor_type"` // RESEARCH_SCANNER, BOT_SCANNER, UNKNOWN
 	ActorName       string    `json:"actor_name" parquet:"actor_name"` // Censys, Shodan, Shadowserver, etc.
+	Classification  string    `json:"classification" parquet:"classification"` // MALICIOUS, SUSPICIOUS, -
 	HTTPMethod      string    `json:"http_method" parquet:"http_method"`
 	HTTPProtocol    string    `json:"http_protocol" parquet:"http_protocol"` // HTTP/1.1, HTTP/2.0, HTTP/3.0
 	TLSProtocol     string    `json:"tls_protocol" parquet:"tls_protocol"`   // TLSv1.2, TLSv1.3
@@ -89,6 +90,7 @@ type PublicBlockEvent struct {
 	ASOrg          string    `json:"as_org"`
 	ActorType      string    `json:"actor_type"`
 	ActorName      string    `json:"actor_name"`
+	Classification string    `json:"classification"` // MALICIOUS, SUSPICIOUS, -
 	HTTPMethod     string    `json:"http_method"`
 	ThreatCategory string    `json:"threat_category"`
 	UserAgent      string    `json:"user_agent"`

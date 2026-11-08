@@ -267,7 +267,7 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 <th className="py-2.5 px-3">Time</th>
                 <th className="py-2.5 px-3">Defense Layer</th>
                 <th className="py-2.5 px-3">Observed IP</th>
-                <th className="py-2.5 px-3">Actor / Classification</th>
+                <th className="py-2.5 px-3">Our Classification</th>
                 <th className="py-2.5 px-3">Location</th>
                 <th className="py-2.5 px-3">ASN / Organization</th>
                 <th className="py-2.5 px-3">Vector</th>
@@ -276,22 +276,41 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {recentEvents.slice(0, 15).map((evt, idx) => {
-                const isModSec = evt.layer === "MODSEC_BLOCK";
+                const isModSec = evt.layer === "MODSEC_BLOCK" || evt.layer === "MODSEC_DETECT";
                 const is444 = evt.layer === "HTTP_444";
+                const is403 = evt.layer === "HTTP_403";
+                const isSuspiciousUrl = evt.layer === "SUSPICIOUS_URL";
+                const isAnomaly = evt.layer === "ANOMALY_SPIKE";
                 const isWaf = evt.layer === "AWS_WAF_SAMPLE";
 
-                const badgeColor = isModSec
+                const badgeColor = evt.layer === "MODSEC_BLOCK"
                   ? "bg-rose-950/60 border-rose-500/60 text-rose-300"
+                  : evt.layer === "MODSEC_DETECT"
+                  ? "bg-indigo-950/60 border-indigo-400/60 text-indigo-300"
                   : is444
                   ? "bg-teal-950/60 border-teal-400/60 text-teal-300"
+                  : is403
+                  ? "bg-orange-950/60 border-orange-400/60 text-orange-300"
+                  : isSuspiciousUrl
+                  ? "bg-red-950/60 border-red-500/60 text-red-300"
+                  : isAnomaly
+                  ? "bg-amber-950/60 border-amber-500/60 text-amber-300"
                   : isWaf
                   ? "bg-purple-950/60 border-purple-500/60 text-purple-300"
                   : "bg-slate-800 border-slate-700 text-slate-300";
 
-                const layerName = isModSec
-                  ? "ModSec CRS"
+                const layerName = evt.layer === "MODSEC_BLOCK"
+                  ? "ModSec Block"
+                  : evt.layer === "MODSEC_DETECT"
+                  ? "ModSec Detect"
                   : is444
                   ? "HTTP 444 Drop"
+                  : is403
+                  ? "HTTP 403 Deny"
+                  : isSuspiciousUrl
+                  ? "Suspicious URL"
+                  : isAnomaly
+                  ? "Anomaly Spike"
                   : isWaf
                   ? "AWS WAF Edge"
                   : evt.layer;
@@ -299,32 +318,6 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 const timeStr = new Date(evt.observed_at).toLocaleTimeString("en-GB", {
                   hour12: false,
                 });
-
-                // Classification badge
-                let actorBadge = (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800/80 text-slate-400 border border-slate-700/60">
-                    UNMAPPED
-                  </span>
-                );
-                if (evt.actor_type === "RESEARCH_SCANNER") {
-                  actorBadge = (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-950/70 border border-blue-500/60 text-blue-300">
-                      RESEARCH: {evt.actor_name || "Scanner"}
-                    </span>
-                  );
-                } else if (evt.actor_type === "SEARCH_ENGINE") {
-                  actorBadge = (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-950/70 border border-emerald-500/60 text-emerald-300">
-                      SEARCH: {evt.actor_name || "Bot"}
-                    </span>
-                  );
-                } else if (evt.actor_type === "BOT_SCANNER") {
-                  actorBadge = (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 border border-amber-500/60 text-amber-300">
-                      PROBE BOT
-                    </span>
-                  );
-                }
 
                 return (
                   <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
@@ -349,9 +342,30 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                       </code>
                     </td>
 
-                    {/* Actor / Classification */}
+                    {/* Our Classification: MALICIOUS, SUSPICIOUS, - */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
-                      {actorBadge}
+                      <div className="flex flex-col gap-0.5 items-start">
+                        {evt.classification === "MALICIOUS" ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950/70 border border-rose-500/60 text-rose-300">
+                            MALICIOUS
+                          </span>
+                        ) : evt.classification === "SUSPICIOUS" ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950/70 border border-amber-500/60 text-amber-300">
+                            SUSPICIOUS
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-xs px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
+                            -
+                          </span>
+                        )}
+                        {evt.actor_type && evt.actor_type !== "UNKNOWN" && (
+                          <span className="text-[9px] text-slate-400 font-mono">
+                            {evt.actor_type === "RESEARCH_SCANNER" ? `RESEARCH: ${evt.actor_name || "Scanner"}` :
+                             evt.actor_type === "SEARCH_ENGINE" ? `SEARCH: ${evt.actor_name || "Bot"}` :
+                             evt.actor_type === "BOT_SCANNER" ? "PROBE BOT" : evt.actor_name || evt.actor_type}
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Location */}

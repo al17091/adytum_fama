@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/al17091/adytum_fama/pkg/awsauth"
@@ -93,7 +94,14 @@ func main() {
 	}
 
 	// 4. Ingest events uniformly across all registered connectors
-	collectionWindow := 70 * time.Minute
+	windowMin := 1440 // default 24 hours backfill window
+	if val := os.Getenv("COLLECTION_WINDOW_MINUTES"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			windowMin = n
+		}
+	}
+	collectionWindow := time.Duration(windowMin) * time.Minute
+	log.Printf("[INFO] Ingesting events with collection window of %d minutes (%v)...", windowMin, collectionWindow)
 	var allEvents []models.BlockEvent
 
 	for _, conn := range eventConnectors {

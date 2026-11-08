@@ -67,6 +67,7 @@ func (db *DB) InitSchema(ctx context.Context) error {
 			reverse_dns VARCHAR(255),
 			actor_type VARCHAR(32),
 			actor_name VARCHAR(64),
+			classification VARCHAR(16) NOT NULL DEFAULT '-',
 			http_method VARCHAR(16),
 			http_protocol VARCHAR(16),
 			tls_protocol VARCHAR(16),
@@ -101,6 +102,8 @@ func (db *DB) InitSchema(ctx context.Context) error {
 			payload JSONB NOT NULL,
 			generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
+
+		`ALTER TABLE security_block_events ADD COLUMN IF NOT EXISTS classification VARCHAR(16) NOT NULL DEFAULT '-';`,
 	}
 
 	for _, q := range queries {
@@ -151,22 +154,22 @@ func (db *DB) InsertBlockEvents(ctx context.Context, events []models.BlockEvent)
 	query := `INSERT INTO security_block_events (
 		event_id, observed_at, layer, is_blocked, gateway_node, src_ip,
 		country_code, country_name, city_name, latitude, longitude,
-		asn, as_org, reverse_dns, actor_type, actor_name,
+		asn, as_org, reverse_dns, actor_type, actor_name, classification,
 		http_method, http_protocol, tls_protocol, request_host,
 		request_uri, user_agent, threat_category, waf_rule_ids, waf_anomaly_score
 	) VALUES (
 		$1, $2, $3, $4, $5, $6,
 		$7, $8, $9, $10, $11,
-		$12, $13, $14, $15, $16,
-		$17, $18, $19, $20,
-		$21, $22, $23, $24, $25
+		$12, $13, $14, $15, $16, $17,
+		$18, $19, $20, $21,
+		$22, $23, $24, $25, $26
 	) ON CONFLICT (event_id, observed_at) DO NOTHING;`
 
 	for _, e := range events {
 		batch.Queue(query,
 			e.EventID, e.ObservedAt, e.Layer, e.IsBlocked, e.GatewayNode, e.SrcIP,
 			e.CountryCode, e.CountryName, e.CityName, e.Latitude, e.Longitude,
-			e.ASN, e.ASOrg, e.ReverseDNS, e.ActorType, e.ActorName,
+			e.ASN, e.ASOrg, e.ReverseDNS, e.ActorType, e.ActorName, e.Classification,
 			e.HTTPMethod, e.HTTPProtocol, e.TLSProtocol, e.RequestHost,
 			e.RequestURI, e.UserAgent, e.ThreatCategory, e.WAFRuleIDs, e.WAFAnomalyScore,
 		)
@@ -416,6 +419,7 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 		COALESCE(city_name, 'Unknown'), COALESCE(latitude, 0), COALESCE(longitude, 0),
 		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'),
 		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
+		COALESCE(classification, '-'),
 		COALESCE(http_method, ''), COALESCE(threat_category, ''), COALESCE(user_agent, '')
 	FROM security_block_events
 	WHERE observed_at >= $1
@@ -433,6 +437,7 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 				&pe.CityName, &pe.Latitude, &pe.Longitude,
 				&pe.ASN, &pe.ASOrg,
 				&pe.ActorType, &pe.ActorName,
+				&pe.Classification,
 				&pe.HTTPMethod, &pe.ThreatCategory, &pe.UserAgent,
 			); err == nil {
 				payload.RecentEvents = append(payload.RecentEvents, pe)

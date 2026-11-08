@@ -7,12 +7,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/al17091/adytum_fama/pkg/models"
 )
+
+var (
+	// CGNAT (RFC 6598) 100.64.0.0/10 (e.g. Tailscale internal IPs)
+	cgnatNet = &net.IPNet{
+		IP:   net.IPv4(100, 64, 0, 0),
+		Mask: net.CIDRMask(10, 32),
+	}
+	// Additional reserved / documentation CIDRs
+	reservedNets = []*net.IPNet{
+		{IP: net.IPv4(192, 0, 2, 0), Mask: net.CIDRMask(24, 32)},    // TEST-NET-1
+		{IP: net.IPv4(198, 51, 100, 0), Mask: net.CIDRMask(24, 32)}, // TEST-NET-2
+		{IP: net.IPv4(203, 0, 113, 0), Mask: net.CIDRMask(24, 32)},  // TEST-NET-3
+		{IP: net.IPv4(198, 18, 0, 0), Mask: net.CIDRMask(15, 32)},    // Benchmarking
+		{IP: net.IPv4(240, 0, 0, 0), Mask: net.CIDRMask(4, 32)},     // Class E reserved
+	}
+)
+
+// IsReservedOrPrivateIP checks if an IP is private, link-local, loopback, or in reserved CIDRs
+func IsReservedOrPrivateIP(ipStr string) bool {
+	ip := net.ParseIP(strings.TrimSpace(ipStr))
+	if ip == nil {
+		return true // invalid or empty IP is treated as non-public
+	}
+
+	if ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+
+	if cgnatNet.Contains(ip) {
+		return true
+	}
+
+	for _, rn := range reservedNets {
+		if rn.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
 
 // Config holds connection settings for Wazuh Indexer (OpenSearch)
 type Config struct {
@@ -59,11 +100,19 @@ func (c *Client) FetchEvents(ctx context.Context, window time.Duration) ([]model
 	return c.FetchRecentEvents(ctx, minutes)
 }
 
-// FetchRecentEvents retrieves HTTP 444 and ModSecurity block/detect events for the past windowMinutes
+// FetchRecentEvents retrieves perimeter block/detect events for the past windowMinutes,
+// filtering out internal/private IP traffic and irrelevant 503s (31123/31163).
 func (c *Client) FetchRecentEvents(ctx context.Context, windowMinutes int) ([]models.BlockEvent, error) {
 	timeLimit := time.Now().UTC().Add(-time.Duration(windowMinutes) * time.Minute).Format(time.RFC3339)
 
-	// OpenSearch Query DSL matching Nginx 444 (rule 100100) and ModSecurity CRS (100401/100402)
+	// OpenSearch Query DSL matching:
+	// - 100100 (Nginx 444 Drop)
+	// - 100401 (ModSecurity Detect)
+	// - 100402 (ModSecurity Block)
+	// - 31333  (ModSecurity rejected query)
+	// - 31516  (Suspicious URL access)
+	// - 31151  (Multiple 400 error codes from same IP)
+	// - 31101 + data.id=403 (HTTP 403 access denial)
 	queryDSL := map[string]interface{}{
 		"size": 5000,
 		"query": map[string]interface{}{
@@ -77,10 +126,55 @@ func (c *Client) FetchRecentEvents(ctx context.Context, windowMinutes int) ([]mo
 						},
 					},
 					{
-						"terms": map[string]interface{}{
-							"rule.id": []string{"100100", "100401", "100402"},
+						"bool": map[string]interface{}{
+							"should": []map[string]interface{}{
+								{
+									"terms": map[string]interface{}{
+										"rule.id": []string{
+											"100100", "100401", "100402",
+											"31333", "31516", "31151",
+										},
+									},
+								},
+								{
+									"bool": map[string]interface{}{
+										"filter": []map[string]interface{}{
+											{"term": map[string]interface{}{"rule.id": "31101"}},
+											{"term": map[string]interface{}{"data.id": "403"}},
+										},
+									},
+								},
+							},
+							"minimum_should_match": 1,
 						},
 					},
+				},
+				"must_not": []map[string]interface{}{
+					{
+						"terms": map[string]interface{}{
+							"rule.id": []string{"31123", "31163"},
+						},
+					},
+					{"prefix": map[string]interface{}{"data.srcip": "10."}},
+					{"prefix": map[string]interface{}{"data.srcip": "100."}},
+					{"prefix": map[string]interface{}{"data.srcip": "127."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.16."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.17."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.18."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.19."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.20."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.21."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.22."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.23."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.24."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.25."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.26."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.27."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.28."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.29."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.30."}},
+					{"prefix": map[string]interface{}{"data.srcip": "172.31."}},
+					{"prefix": map[string]interface{}{"data.srcip": "192.168."}},
 				},
 			},
 		},
@@ -142,8 +236,9 @@ func (c *Client) FetchRecentEvents(ctx context.Context, windowMinutes int) ([]mo
 
 func parseWazuhHit(hitID string, src map[string]interface{}) (models.BlockEvent, bool) {
 	evt := models.BlockEvent{
-		EventID:   hitID,
-		IsBlocked: true,
+		EventID:        hitID,
+		IsBlocked:      true,
+		Classification: "-",
 	}
 
 	// 1. Timestamp
@@ -165,16 +260,41 @@ func parseWazuhHit(hitID string, src map[string]interface{}) (models.BlockEvent,
 	}
 
 	switch ruleID {
-	case "100100":
-		evt.Layer = "HTTP_444"
-		evt.ThreatCategory = "RAW_IP_RECON"
+	case "31333":
+		evt.Layer = "MODSEC_BLOCK"
+		evt.ThreatCategory = "WAF_EXPLOIT_ATTEMPT"
+		evt.Classification = "MALICIOUS"
+		evt.IsBlocked = true
 	case "100402":
 		evt.Layer = "MODSEC_BLOCK"
 		evt.ThreatCategory = "WAF_EXPLOIT_ATTEMPT"
+		evt.Classification = "MALICIOUS"
+		evt.IsBlocked = true
+	case "31516":
+		evt.Layer = "SUSPICIOUS_URL"
+		evt.ThreatCategory = "PATH_TRAVERSAL_RECON"
+		evt.Classification = "MALICIOUS"
+		evt.IsBlocked = true
+	case "31151":
+		evt.Layer = "ANOMALY_SPIKE"
+		evt.ThreatCategory = "REPEATED_PROBE"
+		evt.Classification = "SUSPICIOUS"
+		evt.IsBlocked = true
+	case "100100":
+		evt.Layer = "HTTP_444"
+		evt.ThreatCategory = "RAW_IP_RECON"
+		evt.Classification = "-"
+		evt.IsBlocked = true
 	case "100401":
 		evt.Layer = "MODSEC_DETECT"
-		evt.IsBlocked = false
 		evt.ThreatCategory = "SUSPICIOUS_PROBE"
+		evt.Classification = "-"
+		evt.IsBlocked = false
+	case "31101":
+		evt.Layer = "HTTP_403"
+		evt.ThreatCategory = "ACCESS_DENIED"
+		evt.Classification = "-"
+		evt.IsBlocked = true
 	default:
 		return evt, false
 	}
@@ -204,8 +324,8 @@ func parseWazuhHit(hitID string, src map[string]interface{}) (models.BlockEvent,
 		}
 	}
 
-	// Drop if no IP identified
-	if evt.SrcIP == "" {
+	// Drop if no IP identified, or if IP is private, link-local, or reserved
+	if evt.SrcIP == "" || IsReservedOrPrivateIP(evt.SrcIP) {
 		return evt, false
 	}
 
