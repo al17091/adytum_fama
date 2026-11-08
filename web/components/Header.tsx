@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Shield, Globe, Map, RefreshCw } from "lucide-react";
+import { Shield, Globe, Map, RefreshCw, Layers } from "lucide-react";
 
 interface HeaderProps {
   window: "24h" | "7d";
@@ -108,6 +108,16 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">2D MAP</span>
           </button>
         </div>
+
+        {/* Log Explorer Link */}
+        <a
+          href="/guardinfo/events"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-cyan-300 text-xs font-mono transition-colors shadow-sm"
+          title="Open Historical Log Explorer"
+        >
+          <Layers className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="hidden md:inline">Log Explorer</span>
+        </a>
 
         {/* Snapshot Time Badge */}
         <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-900/80 border border-slate-800 text-xs font-mono">

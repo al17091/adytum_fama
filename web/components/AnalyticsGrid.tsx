@@ -9,6 +9,7 @@ import {
   ShieldAlert,
   Search,
   Eye,
+  History,
 } from "lucide-react";
 import {
   HourlyTrafficStats,
@@ -256,12 +257,16 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-cyan-400" />
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200">
-              Recent Intercepted Perimeter Probes (Plain Text IP / Strictly Non-Linked)
+              Recent Intercepted Perimeter Probes
             </h3>
           </div>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-            format-detection: none
-          </span>
+          <a
+            href="/guardinfo/events"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono font-medium transition-colors shadow-sm"
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Full Event Log Explorer (7D) &rarr;</span>
+          </a>
         </div>
 
         <div className="overflow-x-auto">

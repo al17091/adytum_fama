@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -74,6 +75,9 @@ func main() {
 
 	// Pre-aggregated snapshot API (1-3ms response)
 	mux.HandleFunc("/guardinfo/api/snapshot", srv.handleSnapshot)
+
+	// Historical events query & log explorer API
+	mux.HandleFunc("/guardinfo/api/events", srv.handleQueryEvents)
 
 	// Redirect root to /guardinfo/
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +160,57 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleQueryEvents(w http.ResponseWriter, r *http.Request) {
+	if s.db == nil {
+		http.Error(w, `{"error":"database unavailable"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	window := r.URL.Query().Get("window")
+	duration := 24 * time.Hour
+	if window == "7d" {
+		duration = 7 * 24 * time.Hour
+	} else if window == "3d" {
+		duration = 3 * 24 * time.Hour
+	}
+
+	limit := 100
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	offset := 0
+	if oStr := r.URL.Query().Get("offset"); oStr != "" {
+		if o, err := strconv.Atoi(oStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	filter := storage.EventFilter{
+		Since:          time.Now().UTC().Add(-duration),
+		Layer:          r.URL.Query().Get("layer"),
+		Classification: r.URL.Query().Get("classification"),
+		Search:         r.URL.Query().Get("q"),
+		Limit:          limit,
+		Offset:         offset,
+	}
+
+	result, err := s.db.QueryBlockEvents(r.Context(), filter)
+	if err != nil {
+		log.Printf("[ERROR] QueryBlockEvents failed: %v", err)
+		http.Error(w, `{"error":"failed querying events"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=15, stale-while-revalidate=30")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Printf("[ERROR] Failed encoding events response: %v", err)
+	}
+}
+
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	// Trim prefix "/guardinfo"
 	relPath := strings.TrimPrefix(r.URL.Path, "/guardinfo")
@@ -171,44 +226,60 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
 	}
 
+	// Try multiple candidate file paths for clean URLs (e.g. "events" -> "events/index.html", "events.html")
+	candidates := []string{relPath}
+	if !strings.Contains(path.Base(relPath), ".") {
+		candidates = []string{
+			path.Join(relPath, "index.html"),
+			relPath + ".html",
+			relPath,
+		}
+	}
+
 	// Serve from custom local directory if provided
 	if s.staticDir != "" {
-		filePath := path.Join(s.staticDir, relPath)
-		if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
-			// Fallback to index.html for SPA
-			http.ServeFile(w, r, path.Join(s.staticDir, "index.html"))
-			return
+		for _, c := range candidates {
+			filePath := path.Join(s.staticDir, c)
+			if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+				http.ServeFile(w, r, filePath)
+				return
+			}
 		}
-		http.ServeFile(w, r, filePath)
+		// Fallback to index.html for SPA
+		http.ServeFile(w, r, path.Join(s.staticDir, "index.html"))
 		return
 	}
 
 	// Check file existence in embedded FS
-	f, err := s.staticFS.Open(relPath)
-	if err != nil {
-		// Fallback to index.html for client-side routing
-		indexFile, indexErr := s.staticFS.Open("index.html")
-		if indexErr != nil {
-			http.NotFound(w, r)
-			return
+	for _, c := range candidates {
+		f, err := s.staticFS.Open(c)
+		if err == nil {
+			stat, statErr := f.Stat()
+			if statErr == nil && !stat.IsDir() {
+				defer f.Close()
+				if rs, ok := f.(io.ReadSeeker); ok {
+					http.ServeContent(w, r, path.Base(c), time.Time{}, rs)
+					return
+				}
+				data, readErr := io.ReadAll(f)
+				if readErr == nil {
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					_, _ = w.Write(data)
+					return
+				}
+			}
+			f.Close()
 		}
-		defer indexFile.Close()
-		data, _ := io.ReadAll(indexFile)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(data)
-		return
-	}
-	defer f.Close()
-
-	if rs, ok := f.(io.ReadSeeker); ok {
-		http.ServeContent(w, r, path.Base(relPath), time.Time{}, rs)
-		return
 	}
 
-	data, err := io.ReadAll(f)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+	// Fallback to index.html for client-side routing
+	indexFile, indexErr := s.staticFS.Open("index.html")
+	if indexErr != nil {
+		http.NotFound(w, r)
 		return
 	}
+	defer indexFile.Close()
+	data, _ := io.ReadAll(indexFile)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)
 }

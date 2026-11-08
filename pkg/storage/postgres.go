@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/al17091/adytum_fama/pkg/models"
@@ -462,4 +463,125 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 	}
 
 	return payload, nil
+}
+
+// EventFilter defines search and pagination parameters for the log explorer
+type EventFilter struct {
+	Since          time.Time
+	Until          time.Time
+	Layer          string // optional filter by layer
+	Classification string // optional filter by classification
+	Search         string // keyword search across ip, uri, user_agent, as_org
+	Limit          int
+	Offset         int
+}
+
+// QueryEventsResult holds paginated results from QueryBlockEvents
+type QueryEventsResult struct {
+	Total  int64                     `json:"total"`
+	Events []models.PublicBlockEvent `json:"events"`
+	Limit  int                       `json:"limit"`
+	Offset int                       `json:"offset"`
+}
+
+// QueryBlockEvents retrieves filtered, paginated events across historical days
+func (db *DB) QueryBlockEvents(ctx context.Context, f EventFilter) (*QueryEventsResult, error) {
+	if f.Limit <= 0 {
+		f.Limit = 100
+	} else if f.Limit > 500 {
+		f.Limit = 500
+	}
+	if f.Offset < 0 {
+		f.Offset = 0
+	}
+	if f.Since.IsZero() {
+		f.Since = time.Now().UTC().Add(-7 * 24 * time.Hour)
+	}
+
+	whereClauses := []string{"observed_at >= $1"}
+	args := []interface{}{f.Since}
+	argIdx := 2
+
+	if !f.Until.IsZero() {
+		whereClauses = append(whereClauses, fmt.Sprintf("observed_at <= $%d", argIdx))
+		args = append(args, f.Until)
+		argIdx++
+	}
+
+	if f.Layer != "" && f.Layer != "ALL" {
+		whereClauses = append(whereClauses, fmt.Sprintf("layer = $%d", argIdx))
+		args = append(args, f.Layer)
+		argIdx++
+	}
+
+	if f.Classification != "" && f.Classification != "ALL" {
+		whereClauses = append(whereClauses, fmt.Sprintf("classification = $%d", argIdx))
+		args = append(args, f.Classification)
+		argIdx++
+	}
+
+	if f.Search != "" {
+		s := "%" + strings.TrimSpace(f.Search) + "%"
+		whereClauses = append(whereClauses, fmt.Sprintf("(src_ip ILIKE $%d OR request_uri ILIKE $%d OR user_agent ILIKE $%d OR as_org ILIKE $%d)", argIdx, argIdx, argIdx, argIdx))
+		args = append(args, s)
+		argIdx++
+	}
+
+	whereSQL := strings.Join(whereClauses, " AND ")
+
+	// Count matching events
+	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM security_block_events WHERE %s", whereSQL)
+	var total int64
+	if err := db.pool.QueryRow(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("failed counting filtered events: %w", err)
+	}
+
+	// Fetch page
+	selectSQL := fmt.Sprintf(`SELECT
+		observed_at, layer, src_ip,
+		COALESCE(country_code, 'XX'), COALESCE(country_name, 'Unknown'),
+		COALESCE(city_name, 'Unknown'), COALESCE(latitude, 0), COALESCE(longitude, 0),
+		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'),
+		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
+		COALESCE(classification, '-'),
+		COALESCE(http_method, ''), COALESCE(request_uri, '/'), COALESCE(threat_category, ''),
+		COALESCE(ja3_fingerprint, ''), COALESCE(ja4_fingerprint, ''),
+		COALESCE(user_agent, '')
+	FROM security_block_events
+	WHERE %s
+	ORDER BY observed_at DESC
+	LIMIT $%d OFFSET $%d`, whereSQL, argIdx, argIdx+1)
+
+	args = append(args, f.Limit, f.Offset)
+
+	rows, err := db.pool.Query(ctx, selectSQL, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying filtered events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]models.PublicBlockEvent, 0, f.Limit)
+	for rows.Next() {
+		var pe models.PublicBlockEvent
+		if err := rows.Scan(
+			&pe.ObservedAt, &pe.Layer, &pe.SrcIP,
+			&pe.CountryCode, &pe.CountryName,
+			&pe.CityName, &pe.Latitude, &pe.Longitude,
+			&pe.ASN, &pe.ASOrg,
+			&pe.ActorType, &pe.ActorName,
+			&pe.Classification,
+			&pe.HTTPMethod, &pe.RequestURI, &pe.ThreatCategory,
+			&pe.JA3Fingerprint, &pe.JA4Fingerprint,
+			&pe.UserAgent,
+		); err == nil {
+			events = append(events, pe)
+		}
+	}
+
+	return &QueryEventsResult{
+		Total:  total,
+		Events: events,
+		Limit:  f.Limit,
+		Offset: f.Offset,
+	}, nil
 }
