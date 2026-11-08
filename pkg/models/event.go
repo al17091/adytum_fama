@@ -31,6 +31,8 @@ type BlockEvent struct {
 	RequestURI      string    `json:"request_uri" parquet:"request_uri"`
 	UserAgent       string    `json:"user_agent" parquet:"user_agent"`
 	ThreatCategory  string    `json:"threat_category" parquet:"threat_category"` // SQLI, XSS, DOTFILE, CMS_PROBE, RAW_IP_RECON
+	JA3Fingerprint  string    `json:"ja3_fingerprint,omitempty" parquet:"ja3_fingerprint"`
+	JA4Fingerprint  string    `json:"ja4_fingerprint,omitempty" parquet:"ja4_fingerprint"`
 	WAFRuleIDs      []string  `json:"waf_rule_ids" parquet:"waf_rule_ids,list"`
 	WAFAnomalyScore int32     `json:"waf_anomaly_score" parquet:"waf_anomaly_score"`
 }
@@ -94,6 +96,8 @@ type PublicBlockEvent struct {
 	HTTPMethod     string    `json:"http_method"`
 	RequestURI     string    `json:"request_uri"`
 	ThreatCategory string    `json:"threat_category"`
+	JA3Fingerprint string    `json:"ja3_fingerprint,omitempty"`
+	JA4Fingerprint string    `json:"ja4_fingerprint,omitempty"`
 	UserAgent      string    `json:"user_agent"`
 }
 

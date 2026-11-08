@@ -15,6 +15,8 @@ export interface PublicBlockEvent {
   http_method: string;
   request_uri: string;
   threat_category: string;
+  ja3_fingerprint?: string;
+  ja4_fingerprint?: string;
   user_agent: string;
 }
 

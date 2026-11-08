@@ -92,3 +92,31 @@ func TestParseWazuhHit_UserAgentAndURI(t *testing.T) {
 	}
 }
 
+func TestParseWazuhHit_JA3AndJA4(t *testing.T) {
+	hitID := "test-hit-02"
+	src := map[string]interface{}{
+		"rule": map[string]interface{}{
+			"id": "31516",
+		},
+		"data": map[string]interface{}{
+			"srcip": "185.202.236.187",
+		},
+		"full_log": `185.202.236.187 - - [07/Nov/2026:08:14:50 +0000] "GET /etc/passwd HTTP/2.0" 403 162 "-" "curl/7.88.1" "-" proto="HTTP/2.0" tls="TLSv1.3" host="example.com" ja3="e7d705a3286e19ea42f587b344ee6865" ja4="t13d1516h2_8daaf6152771_0271dc9a2d87"`,
+	}
+
+	evt, ok := parseWazuhHit(hitID, src)
+	if !ok {
+		t.Fatalf("expected parseWazuhHit to succeed")
+	}
+
+	if evt.Classification != "MALICIOUS" {
+		t.Errorf("Classification = %q, want MALICIOUS", evt.Classification)
+	}
+	if evt.JA3Fingerprint != "e7d705a3286e19ea42f587b344ee6865" {
+		t.Errorf("JA3Fingerprint = %q, want e7d705a3286e19ea42f587b344ee6865", evt.JA3Fingerprint)
+	}
+	if evt.JA4Fingerprint != "t13d1516h2_8daaf6152771_0271dc9a2d87" {
+		t.Errorf("JA4Fingerprint = %q, want t13d1516h2_8daaf6152771_0271dc9a2d87", evt.JA4Fingerprint)
+	}
+}
+

@@ -37,6 +37,9 @@ var (
 	modsecRequestRegex = regexp.MustCompile(`request:\s+"([A-Z]+)\s+([^"\s]+)`)
 	// Regex matching ModSecurity URI tag: [uri "/path"]
 	modsecURITagRegex = regexp.MustCompile(`\[uri\s+"([^"]+)"\]`)
+	// Regex matching CloudFront JA3/JA4 fingerprints in enriched Nginx logs
+	ja3Regex = regexp.MustCompile(`\bja3="([^"\s]+)"`)
+	ja4Regex = regexp.MustCompile(`\bja4="([^"\s]+)"`)
 )
 
 // IsReservedOrPrivateIP checks if an IP is private, link-local, loopback, or in reserved CIDRs
@@ -330,6 +333,12 @@ func parseWazuhHit(hitID string, src map[string]interface{}) (models.BlockEvent,
 		} else if ua, ok := data["http_user_agent"].(string); ok && ua != "" {
 			evt.UserAgent = ua
 		}
+		if ja3, ok := data["ja3"].(string); ok && ja3 != "" && ja3 != "-" {
+			evt.JA3Fingerprint = ja3
+		}
+		if ja4, ok := data["ja4"].(string); ok && ja4 != "" && ja4 != "-" {
+			evt.JA4Fingerprint = ja4
+		}
 	}
 	if evt.SrcIP == "" {
 		if srcip, ok := src["srcip"].(string); ok {
@@ -359,6 +368,17 @@ func parseWazuhHit(hitID string, src map[string]interface{}) (models.BlockEvent,
 				evt.RequestURI = submatch[2]
 			} else if submatch := modsecURITagRegex.FindStringSubmatch(fullLog); len(submatch) >= 2 {
 				evt.RequestURI = submatch[1]
+			}
+		}
+
+		if evt.JA3Fingerprint == "" {
+			if submatch := ja3Regex.FindStringSubmatch(fullLog); len(submatch) >= 2 && submatch[1] != "-" {
+				evt.JA3Fingerprint = submatch[1]
+			}
+		}
+		if evt.JA4Fingerprint == "" {
+			if submatch := ja4Regex.FindStringSubmatch(fullLog); len(submatch) >= 2 && submatch[1] != "-" {
+				evt.JA4Fingerprint = submatch[1]
 			}
 		}
 	}

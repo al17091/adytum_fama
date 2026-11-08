@@ -75,6 +75,8 @@ func (db *DB) InitSchema(ctx context.Context) error {
 			request_uri TEXT,
 			user_agent TEXT,
 			threat_category VARCHAR(64),
+			ja3_fingerprint VARCHAR(64),
+			ja4_fingerprint VARCHAR(64),
 			waf_rule_ids TEXT[],
 			waf_anomaly_score INT DEFAULT 0,
 			PRIMARY KEY (event_id, observed_at)
@@ -104,6 +106,8 @@ func (db *DB) InitSchema(ctx context.Context) error {
 		);`,
 
 		`ALTER TABLE security_block_events ADD COLUMN IF NOT EXISTS classification VARCHAR(16) NOT NULL DEFAULT '-';`,
+		`ALTER TABLE security_block_events ADD COLUMN IF NOT EXISTS ja3_fingerprint VARCHAR(64);`,
+		`ALTER TABLE security_block_events ADD COLUMN IF NOT EXISTS ja4_fingerprint VARCHAR(64);`,
 	}
 
 	for _, q := range queries {
@@ -156,13 +160,15 @@ func (db *DB) InsertBlockEvents(ctx context.Context, events []models.BlockEvent)
 		country_code, country_name, city_name, latitude, longitude,
 		asn, as_org, reverse_dns, actor_type, actor_name, classification,
 		http_method, http_protocol, tls_protocol, request_host,
-		request_uri, user_agent, threat_category, waf_rule_ids, waf_anomaly_score
+		request_uri, user_agent, threat_category, ja3_fingerprint, ja4_fingerprint,
+		waf_rule_ids, waf_anomaly_score
 	) VALUES (
 		$1, $2, $3, $4, $5, $6,
 		$7, $8, $9, $10, $11,
 		$12, $13, $14, $15, $16, $17,
 		$18, $19, $20, $21,
-		$22, $23, $24, $25, $26
+		$22, $23, $24, $25, $26,
+		$27, $28
 	) ON CONFLICT (event_id, observed_at) DO NOTHING;`
 
 	for _, e := range events {
@@ -171,7 +177,8 @@ func (db *DB) InsertBlockEvents(ctx context.Context, events []models.BlockEvent)
 			e.CountryCode, e.CountryName, e.CityName, e.Latitude, e.Longitude,
 			e.ASN, e.ASOrg, e.ReverseDNS, e.ActorType, e.ActorName, e.Classification,
 			e.HTTPMethod, e.HTTPProtocol, e.TLSProtocol, e.RequestHost,
-			e.RequestURI, e.UserAgent, e.ThreatCategory, e.WAFRuleIDs, e.WAFAnomalyScore,
+			e.RequestURI, e.UserAgent, e.ThreatCategory, e.JA3Fingerprint, e.JA4Fingerprint,
+			e.WAFRuleIDs, e.WAFAnomalyScore,
 		)
 	}
 
@@ -235,9 +242,11 @@ func (db *DB) GetEventsForDate(ctx context.Context, date time.Time) ([]models.Bl
 		COALESCE(city_name, 'Unknown'), COALESCE(latitude, 0), COALESCE(longitude, 0),
 		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'), COALESCE(reverse_dns, ''),
 		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
+		COALESCE(classification, '-'),
 		COALESCE(http_method, ''), COALESCE(http_protocol, ''), COALESCE(tls_protocol, ''),
 		COALESCE(request_host, ''), COALESCE(request_uri, ''), COALESCE(user_agent, ''),
-		COALESCE(threat_category, ''), COALESCE(waf_rule_ids, ARRAY[]::TEXT[]), COALESCE(waf_anomaly_score, 0)
+		COALESCE(threat_category, ''), COALESCE(ja3_fingerprint, ''), COALESCE(ja4_fingerprint, ''),
+		COALESCE(waf_rule_ids, ARRAY[]::TEXT[]), COALESCE(waf_anomaly_score, 0)
 	FROM security_block_events
 	WHERE observed_at >= $1 AND observed_at < $2
 	ORDER BY observed_at ASC;`
@@ -255,8 +264,11 @@ func (db *DB) GetEventsForDate(ctx context.Context, date time.Time) ([]models.Bl
 			&e.EventID, &e.ObservedAt, &e.Layer, &e.IsBlocked, &e.GatewayNode,
 			&e.SrcIP, &e.CountryCode, &e.CountryName, &e.CityName, &e.Latitude, &e.Longitude,
 			&e.ASN, &e.ASOrg, &e.ReverseDNS, &e.ActorType, &e.ActorName,
+			&e.Classification,
 			&e.HTTPMethod, &e.HTTPProtocol, &e.TLSProtocol, &e.RequestHost,
-			&e.RequestURI, &e.UserAgent, &e.ThreatCategory, &e.WAFRuleIDs, &e.WAFAnomalyScore,
+			&e.RequestURI, &e.UserAgent, &e.ThreatCategory,
+			&e.JA3Fingerprint, &e.JA4Fingerprint,
+			&e.WAFRuleIDs, &e.WAFAnomalyScore,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed scanning event row: %w", err)
@@ -420,7 +432,9 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'),
 		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
 		COALESCE(classification, '-'),
-		COALESCE(http_method, ''), COALESCE(request_uri, '/'), COALESCE(threat_category, ''), COALESCE(user_agent, '')
+		COALESCE(http_method, ''), COALESCE(request_uri, '/'), COALESCE(threat_category, ''),
+		COALESCE(ja3_fingerprint, ''), COALESCE(ja4_fingerprint, ''),
+		COALESCE(user_agent, '')
 	FROM security_block_events
 	WHERE observed_at >= $1
 	ORDER BY observed_at DESC
@@ -438,7 +452,9 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 				&pe.ASN, &pe.ASOrg,
 				&pe.ActorType, &pe.ActorName,
 				&pe.Classification,
-				&pe.HTTPMethod, &pe.RequestURI, &pe.ThreatCategory, &pe.UserAgent,
+				&pe.HTTPMethod, &pe.RequestURI, &pe.ThreatCategory,
+				&pe.JA3Fingerprint, &pe.JA4Fingerprint,
+				&pe.UserAgent,
 			); err == nil {
 				payload.RecentEvents = append(payload.RecentEvents, pe)
 			}

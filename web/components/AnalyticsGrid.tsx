@@ -270,7 +270,8 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 <th className="py-2.5 px-3">Our Classification</th>
                 <th className="py-2.5 px-3">Location</th>
                 <th className="py-2.5 px-3">ASN / Organization</th>
-                <th className="py-2.5 px-3">Target Path / Vector</th>
+                <th className="py-2.5 px-3">Target Path</th>
+                <th className="py-2.5 px-3">Vector</th>
                 <th className="py-2.5 px-3">User-Agent</th>
               </tr>
             </thead>
@@ -382,20 +383,32 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                       {evt.as_org || "Unknown"}
                     </td>
 
-                    {/* Target Path / Vector */}
-                    <td className="py-2.5 px-3 max-w-[240px]">
-                      <div className="flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5 font-mono text-xs truncate" title={evt.request_uri || "/"}>
-                          <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 px-1 py-0.2 rounded">
-                            {evt.http_method || "GET"}
-                          </span>
-                          <span className="text-slate-100 font-semibold truncate">
-                            {evt.request_uri || "/"}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-mono text-cyan-400/80 truncate">
+                    {/* Target Path */}
+                    <td className="py-2.5 px-3 max-w-[200px]">
+                      <div className="flex items-center gap-1.5 font-mono text-xs truncate" title={evt.request_uri || "/"}>
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 px-1 py-0.2 rounded shrink-0">
+                          {evt.http_method || "GET"}
+                        </span>
+                        <span className="text-slate-100 font-semibold truncate">
+                          {evt.request_uri || "/"}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Vector */}
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5 items-start">
+                        <span className="text-[11px] font-mono text-cyan-400/90 font-medium">
                           {evt.threat_category || "RAW_IP_RECON"}
                         </span>
+                        {evt.ja4_fingerprint && (
+                          <span
+                            className="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-800 text-teal-300 border border-teal-500/30 cursor-help"
+                            title={`JA4: ${evt.ja4_fingerprint}${evt.ja3_fingerprint ? `\nJA3: ${evt.ja3_fingerprint}` : ""}`}
+                          >
+                            JA4: {evt.ja4_fingerprint.slice(0, 10)}...
+                          </span>
+                        )}
                       </div>
                     </td>
 
