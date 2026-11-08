@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +30,13 @@ var (
 		{IP: net.IPv4(198, 18, 0, 0), Mask: net.CIDRMask(15, 32)},    // Benchmarking
 		{IP: net.IPv4(240, 0, 0, 0), Mask: net.CIDRMask(4, 32)},     // Class E reserved
 	}
+
+	// Regex matching Nginx combined access log: "METHOD /uri HTTP/x" STATUS BYTES "REFERER" "USER-AGENT"
+	nginxCombinedRegex = regexp.MustCompile(`"([A-Z]+)\s+([^"\s]+)\s+HTTP/[^"]+"\s+\d+\s+\d+\s+"[^"]*"\s+"([^"]*)"`)
+	// Regex matching ModSecurity request line: request: "METHOD /uri HTTP/x"
+	modsecRequestRegex = regexp.MustCompile(`request:\s+"([A-Z]+)\s+([^"\s]+)`)
+	// Regex matching ModSecurity URI tag: [uri "/path"]
+	modsecURITagRegex = regexp.MustCompile(`\[uri\s+"([^"]+)"\]`)
 )
 
 // IsReservedOrPrivateIP checks if an IP is private, link-local, loopback, or in reserved CIDRs
@@ -317,10 +325,41 @@ func parseWazuhHit(hitID string, src map[string]interface{}) (models.BlockEvent,
 		if proto, ok := data["protocol"].(string); ok {
 			evt.HTTPMethod = proto
 		}
+		if ua, ok := data["user_agent"].(string); ok && ua != "" {
+			evt.UserAgent = ua
+		} else if ua, ok := data["http_user_agent"].(string); ok && ua != "" {
+			evt.UserAgent = ua
+		}
 	}
 	if evt.SrcIP == "" {
 		if srcip, ok := src["srcip"].(string); ok {
 			evt.SrcIP = srcip
+		}
+	}
+
+	// 5. User-Agent and RequestURI enrichment from full_log if missing
+	fullLog, _ := src["full_log"].(string)
+	if fullLog != "" {
+		if submatch := nginxCombinedRegex.FindStringSubmatch(fullLog); len(submatch) >= 4 {
+			if evt.HTTPMethod == "" {
+				evt.HTTPMethod = submatch[1]
+			}
+			if evt.RequestURI == "" {
+				evt.RequestURI = submatch[2]
+			}
+			if evt.UserAgent == "" {
+				evt.UserAgent = submatch[3]
+			}
+		}
+		if evt.RequestURI == "" {
+			if submatch := modsecRequestRegex.FindStringSubmatch(fullLog); len(submatch) >= 3 {
+				if evt.HTTPMethod == "" {
+					evt.HTTPMethod = submatch[1]
+				}
+				evt.RequestURI = submatch[2]
+			} else if submatch := modsecURITagRegex.FindStringSubmatch(fullLog); len(submatch) >= 2 {
+				evt.RequestURI = submatch[1]
+			}
 		}
 	}
 

@@ -420,7 +420,7 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'),
 		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
 		COALESCE(classification, '-'),
-		COALESCE(http_method, ''), COALESCE(threat_category, ''), COALESCE(user_agent, '')
+		COALESCE(http_method, ''), COALESCE(request_uri, '/'), COALESCE(threat_category, ''), COALESCE(user_agent, '')
 	FROM security_block_events
 	WHERE observed_at >= $1
 	ORDER BY observed_at DESC
@@ -438,7 +438,7 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 				&pe.ASN, &pe.ASOrg,
 				&pe.ActorType, &pe.ActorName,
 				&pe.Classification,
-				&pe.HTTPMethod, &pe.ThreatCategory, &pe.UserAgent,
+				&pe.HTTPMethod, &pe.RequestURI, &pe.ThreatCategory, &pe.UserAgent,
 			); err == nil {
 				payload.RecentEvents = append(payload.RecentEvents, pe)
 			}

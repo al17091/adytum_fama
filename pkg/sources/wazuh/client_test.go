@@ -61,3 +61,34 @@ func TestIsReservedOrPrivateIP(t *testing.T) {
 		}
 	}
 }
+
+func TestParseWazuhHit_UserAgentAndURI(t *testing.T) {
+	hitID := "test-hit-01"
+	src := map[string]interface{}{
+		"rule": map[string]interface{}{
+			"id": "100100",
+		},
+		"data": map[string]interface{}{
+			"srcip": "185.202.236.187",
+			"id":    "444",
+		},
+		"full_log": `185.202.236.187 - - [07/Nov/2026:08:14:50 +0000] "GET /smtp.yml HTTP/1.1" 444 0 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" "-"`,
+	}
+
+	evt, ok := parseWazuhHit(hitID, src)
+	if !ok {
+		t.Fatalf("expected parseWazuhHit to succeed")
+	}
+
+	if evt.RequestURI != "/smtp.yml" {
+		t.Errorf("RequestURI = %q, want %q", evt.RequestURI, "/smtp.yml")
+	}
+	if evt.HTTPMethod != "GET" {
+		t.Errorf("HTTPMethod = %q, want %q", evt.HTTPMethod, "GET")
+	}
+	expectedUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+	if evt.UserAgent != expectedUA {
+		t.Errorf("UserAgent = %q, want %q", evt.UserAgent, expectedUA)
+	}
+}
+

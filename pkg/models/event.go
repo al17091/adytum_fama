@@ -92,6 +92,7 @@ type PublicBlockEvent struct {
 	ActorName      string    `json:"actor_name"`
 	Classification string    `json:"classification"` // MALICIOUS, SUSPICIOUS, -
 	HTTPMethod     string    `json:"http_method"`
+	RequestURI     string    `json:"request_uri"`
 	ThreatCategory string    `json:"threat_category"`
 	UserAgent      string    `json:"user_agent"`
 }

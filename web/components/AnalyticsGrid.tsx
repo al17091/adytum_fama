@@ -270,7 +270,7 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 <th className="py-2.5 px-3">Our Classification</th>
                 <th className="py-2.5 px-3">Location</th>
                 <th className="py-2.5 px-3">ASN / Organization</th>
-                <th className="py-2.5 px-3">Vector</th>
+                <th className="py-2.5 px-3">Target Path / Vector</th>
                 <th className="py-2.5 px-3">User-Agent</th>
               </tr>
             </thead>
@@ -382,16 +382,26 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                       {evt.as_org || "Unknown"}
                     </td>
 
-                    {/* Vector */}
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span className="text-cyan-300 font-semibold">
-                        {evt.threat_category || "RAW_IP_RECON"}
-                      </span>
+                    {/* Target Path / Vector */}
+                    <td className="py-2.5 px-3 max-w-[240px]">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5 font-mono text-xs truncate" title={evt.request_uri || "/"}>
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 px-1 py-0.2 rounded">
+                            {evt.http_method || "GET"}
+                          </span>
+                          <span className="text-slate-100 font-semibold truncate">
+                            {evt.request_uri || "/"}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-cyan-400/80 truncate">
+                          {evt.threat_category || "RAW_IP_RECON"}
+                        </span>
+                      </div>
                     </td>
 
                     {/* User Agent */}
                     <td
-                      className="py-2.5 px-3 max-w-[220px] truncate text-slate-400"
+                      className="py-2.5 px-3 max-w-[220px] truncate text-slate-400 font-mono text-xs"
                       title={evt.user_agent}
                     >
                       {evt.user_agent || "-"}
