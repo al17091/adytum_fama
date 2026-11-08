@@ -62,6 +62,10 @@ spec:
                 {{- end }}
               resources:
                 {{- toYaml .Values.exporter.resources | nindent 16 }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumes:
             {{- if .Values.aws.rolesAnywhere.enabled }}
             - name: step-ca-tls

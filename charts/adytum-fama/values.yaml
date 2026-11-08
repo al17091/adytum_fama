@@ -106,6 +106,10 @@ certificate:
   duration: 24h
   renewBefore: 8h
 
+# Node selector for mixed-architecture clusters
+nodeSelector:
+  kubernetes.io/arch: amd64
+
 # Wazuh SIEM telemetry source
 wazuh:
   endpoint: "https://wazuh-indexer.wazuh.svc:9200"
