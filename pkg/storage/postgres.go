@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/al17091/adytum_fama/pkg/models"
@@ -349,8 +350,15 @@ func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.Snapsho
 				payload.LayerBreakdown.RetisModSecBlocks += s.RetisModSecBlocks
 			}
 		}
+		if payload.TotalRequests < payload.MitigatedRequests {
+			payload.TotalRequests = payload.MitigatedRequests
+		}
 		if payload.TotalRequests > 0 {
-			payload.MaliciousRatio = float64(payload.MitigatedRequests) / float64(payload.TotalRequests) * 100.0
+			ratio := float64(payload.MitigatedRequests) / float64(payload.TotalRequests) * 100.0
+			if ratio > 100.0 {
+				ratio = 100.0
+			}
+			payload.MaliciousRatio = math.Round(ratio*100) / 100.0
 		}
 	}
 

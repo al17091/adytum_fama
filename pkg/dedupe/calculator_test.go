@@ -44,7 +44,7 @@ func TestCalculateHourlyMetrics(t *testing.T) {
 			expectedRatio:      0.0,
 		},
 		{
-			name: "Hostile spike exceeding totals",
+			name: "Hostile spike exceeding totals (clamped to total requests)",
 			input: models.HourlyTrafficStats{
 				BucketTime:          time.Now(),
 				CFRequests:          100,
@@ -53,10 +53,10 @@ func TestCalculateHourlyMetrics(t *testing.T) {
 				ForamenModSecBlocks: 10,
 				RetisTotalRequests:  0,
 			},
-			expectedTotal:      150,   // 100 + 50 + 0
+			expectedTotal:      160,   // clamped to mitigated (100 + 50 + 10)
 			expectedMitigated:  160,   // 100 + 50 + 10
-			expectedLegitimate: 0,     // max(0, 150-160)
-			expectedRatio:      106.67, // 160 / 150 * 100
+			expectedLegitimate: 0,     // max(0, 160-160)
+			expectedRatio:      100.0, // 160 / 160 * 100 = 100%
 		},
 	}
 
