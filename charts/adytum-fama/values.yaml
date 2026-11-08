@@ -88,7 +88,7 @@ aws:
     webACLName: "WWW-WebACL"
     webACLArn: "" # e.g. arn:aws:wafv2:us-east-1:<ACCOUNT_ID>:global/webacl/WWW-WebACL/...
   rolesAnywhere:
-    enabled: true
+    enabled: false
     trustAnchorArn: ""
     profileArn: ""
     roleArn: ""
@@ -97,7 +97,7 @@ aws:
 
 # step-ca Certificate (cert-manager) for IAM Roles Anywhere
 certificate:
-  enabled: true
+  enabled: false
   secretName: adytum-fama-collector-tls
   issuerRef:
     name: step-ca-issuer
