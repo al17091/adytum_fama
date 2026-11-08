@@ -2,7 +2,7 @@
 
 > **Perimeter Security Telemetry Collector, S3 Security Data Lake Archiver, and Public Threat Dashboard**
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **AdytumFama** (*Adytum* = sanctuary / behind the defense perimeter, *Fama* = report / observation bulletin) is a lightweight, zero-trust telemetry pipeline and observability platform designed to observe, deduplicate, and archive perimeter traffic from edge gateways (CloudFront / WAF / ModSecurity / Nginx).
 
@@ -96,4 +96,4 @@ flowchart TD
 
 ## License
 
-AdytumFama is open-sourced under the [Apache 2.0 License](LICENSE).
+AdytumFama is open-sourced under the [MIT License](LICENSE).
