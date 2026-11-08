@@ -299,3 +299,138 @@ func (db *DB) GetSnapshot(ctx context.Context, window string) (*models.SnapshotP
 	}
 	return &payload, nil
 }
+
+// BuildSnapshot aggregates stats from hourly_traffic_stats and security_block_events
+func (db *DB) BuildSnapshot(ctx context.Context, window string) (*models.SnapshotPayload, error) {
+	duration := 24 * time.Hour
+	if window == "7d" {
+		duration = 7 * 24 * time.Hour
+	}
+	since := time.Now().UTC().Add(-duration)
+
+	payload := &models.SnapshotPayload{
+		Window:       window,
+		GeneratedAt:  time.Now().UTC(),
+		HourlySeries: make([]models.HourlyTrafficStats, 0),
+		TopCountries: make([]models.CountryStat, 0),
+		TopActors:    make([]models.ActorStat, 0),
+		RecentEvents: make([]models.PublicBlockEvent, 0),
+	}
+
+	// 1. Hourly Series
+	seriesQuery := `SELECT
+		bucket_time, cf_requests, cf_bytes_downloaded, aws_waf_blocked,
+		foramen_444_drops, foramen_modsec_blocks, retis_total_requests,
+		retis_444_drops, retis_modsec_blocks, total_requests,
+		mitigated_requests, legitimate_requests, malicious_ratio
+	FROM hourly_traffic_stats
+	WHERE bucket_time >= $1
+	ORDER BY bucket_time ASC;`
+
+	rows, err := db.pool.Query(ctx, seriesQuery, since)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var s models.HourlyTrafficStats
+			if err := rows.Scan(
+				&s.BucketTime, &s.CFRequests, &s.CFBytesDownloaded, &s.AWSWAFBlocked,
+				&s.Foramen444Drops, &s.ForamenModSecBlocks, &s.RetisTotalRequests,
+				&s.Retis444Drops, &s.RetisModSecBlocks, &s.TotalRequests,
+				&s.MitigatedRequests, &s.LegitimateRequests, &s.MaliciousRatio,
+			); err == nil {
+				payload.HourlySeries = append(payload.HourlySeries, s)
+				payload.TotalRequests += s.TotalRequests
+				payload.MitigatedRequests += s.MitigatedRequests
+				payload.LegitimateRequests += s.LegitimateRequests
+				payload.LayerBreakdown.AWSWAFBlocked += s.AWSWAFBlocked
+				payload.LayerBreakdown.Foramen444Drops += s.Foramen444Drops
+				payload.LayerBreakdown.ForamenModSecBlocks += s.ForamenModSecBlocks
+				payload.LayerBreakdown.Retis444Drops += s.Retis444Drops
+				payload.LayerBreakdown.RetisModSecBlocks += s.RetisModSecBlocks
+			}
+		}
+		if payload.TotalRequests > 0 {
+			payload.MaliciousRatio = float64(payload.MitigatedRequests) / float64(payload.TotalRequests) * 100.0
+		}
+	}
+
+	// 2. Top Countries
+	countryQuery := `SELECT
+		COALESCE(country_code, 'XX'),
+		COALESCE(country_name, 'Unknown'),
+		COUNT(*) as c
+	FROM security_block_events
+	WHERE observed_at >= $1
+	GROUP BY country_code, country_name
+	ORDER BY c DESC
+	LIMIT 10;`
+
+	cRows, err := db.pool.Query(ctx, countryQuery, since)
+	if err == nil {
+		defer cRows.Close()
+		for cRows.Next() {
+			var cs models.CountryStat
+			if err := cRows.Scan(&cs.CountryCode, &cs.CountryName, &cs.Count); err == nil {
+				if payload.MitigatedRequests > 0 {
+					cs.Percentage = float64(cs.Count) / float64(payload.MitigatedRequests) * 100.0
+				}
+				payload.TopCountries = append(payload.TopCountries, cs)
+			}
+		}
+	}
+
+	// 3. Top Actors
+	actorQuery := `SELECT
+		COALESCE(actor_type, 'UNKNOWN'),
+		COALESCE(actor_name, 'Unknown'),
+		COUNT(*) as c
+	FROM security_block_events
+	WHERE observed_at >= $1 AND actor_type != 'UNKNOWN'
+	GROUP BY actor_type, actor_name
+	ORDER BY c DESC
+	LIMIT 10;`
+
+	aRows, err := db.pool.Query(ctx, actorQuery, since)
+	if err == nil {
+		defer aRows.Close()
+		for aRows.Next() {
+			var as models.ActorStat
+			if err := aRows.Scan(&as.ActorType, &as.ActorName, &as.Count); err == nil {
+				payload.TopActors = append(payload.TopActors, as)
+			}
+		}
+	}
+
+	// 4. Recent Events (masked for /guardinfo public consumption)
+	eventQuery := `SELECT
+		observed_at, layer, src_ip,
+		COALESCE(country_code, 'XX'), COALESCE(country_name, 'Unknown'),
+		COALESCE(city_name, 'Unknown'), COALESCE(latitude, 0), COALESCE(longitude, 0),
+		COALESCE(asn, 0), COALESCE(as_org, 'Unknown'),
+		COALESCE(actor_type, 'UNKNOWN'), COALESCE(actor_name, 'Unknown'),
+		COALESCE(http_method, ''), COALESCE(threat_category, ''), COALESCE(user_agent, '')
+	FROM security_block_events
+	WHERE observed_at >= $1
+	ORDER BY observed_at DESC
+	LIMIT 100;`
+
+	eRows, err := db.pool.Query(ctx, eventQuery, since)
+	if err == nil {
+		defer eRows.Close()
+		for eRows.Next() {
+			var pe models.PublicBlockEvent
+			if err := eRows.Scan(
+				&pe.ObservedAt, &pe.Layer, &pe.SrcIP,
+				&pe.CountryCode, &pe.CountryName,
+				&pe.CityName, &pe.Latitude, &pe.Longitude,
+				&pe.ASN, &pe.ASOrg,
+				&pe.ActorType, &pe.ActorName,
+				&pe.HTTPMethod, &pe.ThreatCategory, &pe.UserAgent,
+			); err == nil {
+				payload.RecentEvents = append(payload.RecentEvents, pe)
+			}
+		}
+	}
+
+	return payload, nil
+}

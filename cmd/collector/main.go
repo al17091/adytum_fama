@@ -212,5 +212,19 @@ func main() {
 		log.Printf("[ERROR] Failed to upsert hourly stats: %v", err)
 	}
 
+	// 5. Pre-aggregate and save dashboard snapshots (24h and 7d)
+	for _, w := range []string{"24h", "7d"} {
+		snap, err := db.BuildSnapshot(ctx, w)
+		if err != nil {
+			log.Printf("[ERROR] Failed building snapshot for %s: %v", w, err)
+			continue
+		}
+		if err := db.SaveSnapshot(ctx, w, *snap); err != nil {
+			log.Printf("[ERROR] Failed saving snapshot for %s: %v", w, err)
+		} else {
+			log.Printf("[INFO] Saved dashboard snapshot for %s", w)
+		}
+	}
+
 	log.Println("[INFO] AdytumFama hourly collector completed successfully.")
 }

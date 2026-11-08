@@ -134,9 +134,17 @@ func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 
 	payload, err := s.db.GetSnapshot(r.Context(), window)
 	if err != nil {
-		log.Printf("[WARN] Snapshot query failed for window %s: %v", window, err)
-		http.Error(w, `{"error":"snapshot not ready"}`, http.StatusNotFound)
-		return
+		log.Printf("[INFO] Snapshot cache miss for window %s, generating on-the-fly: %v", window, err)
+		payload, err = s.db.BuildSnapshot(r.Context(), window)
+		if err != nil {
+			log.Printf("[WARN] Snapshot query failed for window %s: %v", window, err)
+			http.Error(w, `{"error":"snapshot not ready"}`, http.StatusNotFound)
+			return
+		}
+		// Async save to cache
+		go func() {
+			_ = s.db.SaveSnapshot(context.Background(), window, *payload)
+		}()
 	}
 
 	// CloudFront edge cache policy: 5 min browser, 30 min CloudFront edge, 60 min stale
