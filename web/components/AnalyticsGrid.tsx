@@ -18,6 +18,7 @@ import {
   PublicBlockEvent,
 } from "../types";
 import { EventDetailModal } from "./EventDetailModal";
+import { formatJST } from "../lib/time";
 
 interface AnalyticsGridProps {
   hourlySeries: HourlyTrafficStats[];
@@ -100,12 +101,7 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 {/* Tooltip on hover */}
                 <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col p-2 bg-slate-950 border border-slate-700 rounded-lg text-[10px] font-mono text-slate-200 z-30 whitespace-nowrap shadow-xl">
                   <div className="text-cyan-400 font-bold mb-1">
-                    {new Date(stat.bucket_time).toLocaleString("ja-JP", {
-                      month: "2-digit",
-                      day: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {formatJST(stat.bucket_time)}
                   </div>
                   <div>Total: {stat.total_requests.toLocaleString()}</div>
                   <div className="text-cyan-300">
@@ -324,9 +320,7 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                   ? "AWS WAF Edge"
                   : evt.layer;
 
-                const timeStr = new Date(evt.observed_at).toLocaleTimeString("en-GB", {
-                  hour12: false,
-                });
+                const timeStr = formatJST(evt.observed_at);
 
                 return (
                   <tr

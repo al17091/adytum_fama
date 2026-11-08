@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Play, Pause, RotateCcw, FastForward } from "lucide-react";
 import { HourlyTrafficStats } from "../types";
+import { formatJST } from "../lib/time";
 
 interface TimelineScrubberProps {
   hourlySeries: HourlyTrafficStats[];
@@ -37,16 +38,7 @@ export const TimelineScrubber: React.FC<TimelineScrubberProps> = ({
   }, [isPlaying, speed, totalSteps, onIndexChange]);
 
   const currentStat = hourlySeries[activeIdx];
-  const formattedBucket = currentStat?.bucket_time
-    ? new Date(currentStat.bucket_time).toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }) + " JST"
-    : "--:-- JST";
+  const formattedBucket = formatJST(currentStat?.bucket_time);
 
   return (
     <div className="w-full bg-slate-900/90 backdrop-blur-md border border-slate-800/90 rounded-xl p-3 shadow-xl flex flex-col gap-2">

@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Shield, Globe, Map, RefreshCw, Layers } from "lucide-react";
+import { formatJST } from "../lib/time";
 
 interface HeaderProps {
   window: "24h" | "7d";
@@ -22,16 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   loading,
   onRefresh,
 }) => {
-  const formattedTime = generatedAt
-    ? new Date(generatedAt).toLocaleString("ja-JP", {
-        timeZone: "Asia/Tokyo",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }) + " JST"
-    : "--:-- JST";
+  const formattedTime = formatJST(generatedAt);
 
   return (
     <header className="border-b border-slate-800/80 bg-[#040711]/90 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">

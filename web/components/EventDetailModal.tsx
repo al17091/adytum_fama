@@ -13,6 +13,7 @@ import {
   Network,
 } from "lucide-react";
 import { PublicBlockEvent } from "../types";
+import { formatJST } from "../lib/time";
 
 interface EventDetailModalProps {
   event: PublicBlockEvent | null;
@@ -86,10 +87,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
     ? "bg-purple-950/70 border-purple-500/60 text-purple-300"
     : "bg-slate-800 border-slate-700 text-slate-300";
 
-  const utcTime = new Date(event.observed_at).toISOString();
-  const localTime = new Date(event.observed_at).toLocaleString("ja-JP", {
-    timeZoneName: "short",
-  });
+  const observedJST = formatJST(event.observed_at);
 
   return (
     <div
@@ -129,7 +127,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
                 )}
               </div>
               <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Observed: {localTime} ({utcTime})
+                Observed: <span className="text-slate-200 font-semibold">{observedJST}</span>
               </p>
             </div>
           </div>
