@@ -1,0 +1,71 @@
+{{- if .Values.exporter.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "adytum-fama.fullname" . }}-exporter
+  labels:
+    {{- include "adytum-fama.labels" . | nindent 4 }}
+    app.kubernetes.io/component: exporter
+spec:
+  schedule: {{ .Values.exporter.schedule | quote }}
+  concurrencyPolicy: {{ .Values.exporter.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.exporter.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.exporter.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "adytum-fama.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: exporter
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.serviceAccount.name | default (include "adytum-fama.fullname" .) }}
+          containers:
+            - name: exporter
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["exporter"]
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.database.secretName }}
+                      key: password
+                - name: POSTGRES_DSN
+                  value: {{ include "adytum-fama.databaseDsn" . | quote }}
+                - name: AWS_REGION
+                  value: {{ .Values.aws.region | quote }}
+                - name: S3_BUCKET_NAME
+                  value: {{ .Values.aws.s3.bucket | quote }}
+                - name: S3_KEY_PREFIX
+                  value: {{ .Values.aws.s3.prefix | quote }}
+                {{- if .Values.aws.rolesAnywhere.enabled }}
+                - name: AWS_ROLES_ANYWHERE_ENABLED
+                  value: "true"
+                - name: AWS_ROLES_ANYWHERE_TRUST_ANCHOR_ARN
+                  value: {{ .Values.aws.rolesAnywhere.trustAnchorArn | quote }}
+                - name: AWS_ROLES_ANYWHERE_PROFILE_ARN
+                  value: {{ .Values.aws.rolesAnywhere.profileArn | quote }}
+                - name: AWS_ROLES_ANYWHERE_ROLE_ARN
+                  value: {{ .Values.aws.rolesAnywhere.roleArn | quote }}
+                - name: AWS_ROLES_ANYWHERE_CERT_PATH
+                  value: {{ .Values.aws.rolesAnywhere.certPath | quote }}
+                - name: AWS_ROLES_ANYWHERE_KEY_PATH
+                  value: {{ .Values.aws.rolesAnywhere.keyPath | quote }}
+                {{- end }}
+              volumeMounts:
+                {{- if .Values.aws.rolesAnywhere.enabled }}
+                - name: step-ca-tls
+                  mountPath: /var/run/secrets/step-ca
+                  readOnly: true
+                {{- end }}
+              resources:
+                {{- toYaml .Values.exporter.resources | nindent 16 }}
+          volumes:
+            {{- if .Values.aws.rolesAnywhere.enabled }}
+            - name: step-ca-tls
+              secret:
+                secretName: {{ .Values.certificate.secretName }}
+            {{- end }}
+{{- end }}
