@@ -22,3 +22,4 @@ export function formatJST(input?: string | Date | number | null): string {
   const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
   return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} JST`;
 }
+
