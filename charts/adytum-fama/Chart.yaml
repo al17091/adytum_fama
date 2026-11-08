@@ -2,8 +2,8 @@ apiVersion: v2
 name: adytum-fama
 description: Perimeter observability, threat intelligence telemetry, 24H/7D sliding window security dashboard, and S3 Security Data Lake engine.
 type: application
-version: 0.1.0-alpha.6
-appVersion: "0.1.0-alpha.6"
+version: 0.1.0-alpha.7
+appVersion: "0.1.0-alpha.7"
 keywords:
   - security
   - perimeter
