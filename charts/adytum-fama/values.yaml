@@ -1,0 +1,136 @@
+# Default values for adytum-fama.
+# This is a YAML-formatted file.
+
+image:
+  repository: ghcr.io/al17091/adytum_fama
+  pullPolicy: IfNotPresent
+  tag: "0.1.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Web & API Server Deployment
+server:
+  enabled: true
+  replicas: 1
+  port: 8080
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi
+  env:
+    PORT: "8080"
+
+# Hourly Collector CronJob (0 * * * *)
+collector:
+  enabled: true
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+  geoip:
+    pvcName: adytum-fama-geoip-pvc
+    mountPath: /usr/share/GeoIP
+    cityFileName: GeoLite2-City.mmdb
+    asnFileName: GeoLite2-ASN.mmdb
+
+# Daily S3 Parquet Exporter CronJob (15 0 * * *)
+exporter:
+  enabled: true
+  schedule: "15 0 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 64Mi
+
+# CloudNativePG PostgreSQL connection
+database:
+  host: adytum-fama-db-rw
+  port: 5432
+  name: adytum_fama
+  user: adytum
+  secretName: adytum-fama-db-app
+  sslmode: disable
+
+# AWS Telemetry & S3 Data Lake configuration
+aws:
+  region: ap-northeast-1
+  s3:
+    bucket: "" # e.g. adytum-fama-datalake-<ACCOUNT_ID>
+    prefix: events
+  cloudwatch:
+    distributionId: "" # e.g. <DISTRIBUTION_ID>
+    webACLName: "WWW-WebACL"
+    webACLArn: "" # e.g. arn:aws:wafv2:us-east-1:<ACCOUNT_ID>:global/webacl/WWW-WebACL/...
+  rolesAnywhere:
+    enabled: false
+    trustAnchorArn: ""
+    profileArn: ""
+    roleArn: ""
+    certPath: /var/run/secrets/step-ca/tls.crt
+    keyPath: /var/run/secrets/step-ca/tls.key
+
+# step-ca Certificate (cert-manager) for IAM Roles Anywhere
+certificate:
+  enabled: false
+  secretName: adytum-fama-collector-tls
+  issuerRef:
+    name: step-ca-issuer
+    kind: ClusterIssuer
+  commonName: adytum-fama-collector.adytum-fama.svc
+  duration: 24h
+  renewBefore: 8h
+
+# Node selector for mixed-architecture clusters
+nodeSelector:
+  kubernetes.io/arch: amd64
+
+# Wazuh SIEM telemetry source
+wazuh:
+  endpoint: "https://wazuh-indexer.wazuh.svc:9200"
+  username: "adytum_fama_reader"
+  secretName: adytum-fama-wazuh-secret
+
+# Prometheus gateway metrics source
+prometheus:
+  endpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+
+# Ingress Configuration
+ingress:
+  enabled: false
+  className: "traefik"
+  annotations: {}
+  hosts:
+    - host: fama.lab.internal
+      paths:
+        - path: /guardinfo
+          pathType: Prefix
+  tls:
+    - secretName: step-ca-tls-fama
+      hosts:
+        - fama.lab.internal

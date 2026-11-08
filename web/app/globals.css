@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cyber-bg: #040711;
+  --color-cyber-surface: #0a0f1d;
+  --color-cyber-card: #0f172a;
+  --color-cyber-border: #1e293b;
+  --color-layer-modsec: #ff2a5f;
+  --color-layer-444: #00f5d4;
+  --color-layer-waf: #a855f7;
+  --color-layer-legit: #38bdf8;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #040711;
+  color: #f1f5f9;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #040711;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Glowing text and borders */
+.glow-modsec {
+  text-shadow: 0 0 10px rgba(255, 42, 95, 0.6);
+}
+.glow-444 {
+  text-shadow: 0 0 10px rgba(0, 245, 212, 0.6);
+}
+.glow-waf {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.6);
+}
+.border-glow-modsec {
+  box-shadow: 0 0 12px rgba(255, 42, 95, 0.3);
+}
+.border-glow-444 {
+  box-shadow: 0 0 12px rgba(0, 245, 212, 0.3);
+}

@@ -1,0 +1,99 @@
+{{- if .Values.collector.enabled -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "adytum-fama.fullname" . }}-collector
+  labels:
+    {{- include "adytum-fama.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+spec:
+  schedule: {{ .Values.collector.schedule | quote }}
+  concurrencyPolicy: {{ .Values.collector.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.collector.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.collector.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "adytum-fama.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: collector
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.serviceAccount.name | default (include "adytum-fama.fullname" .) }}
+          containers:
+            - name: collector
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["collector"]
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.database.secretName }}
+                      key: password
+                - name: POSTGRES_DSN
+                  value: {{ include "adytum-fama.databaseDsn" . | quote }}
+                - name: GEOIP_CITY_PATH
+                  value: "{{ .Values.collector.geoip.mountPath }}/{{ .Values.collector.geoip.cityFileName }}"
+                - name: GEOIP_ASN_PATH
+                  value: "{{ .Values.collector.geoip.mountPath }}/{{ .Values.collector.geoip.asnFileName }}"
+                - name: WAZUH_ENDPOINT
+                  value: {{ .Values.wazuh.endpoint | quote }}
+                - name: WAZUH_USERNAME
+                  value: {{ .Values.wazuh.username | quote }}
+                - name: WAZUH_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.wazuh.secretName }}
+                      key: password
+                - name: PROMETHEUS_ENDPOINT
+                  value: {{ .Values.prometheus.endpoint | quote }}
+                - name: AWS_REGION
+                  value: {{ .Values.aws.region | quote }}
+                - name: CLOUDFRONT_DISTRIBUTION_ID
+                  value: {{ .Values.aws.cloudwatch.distributionId | quote }}
+                - name: WAF_WEBACL_NAME
+                  value: {{ .Values.aws.cloudwatch.webACLName | quote }}
+                - name: WAF_WEBACL_ARN
+                  value: {{ .Values.aws.cloudwatch.webACLArn | quote }}
+                {{- if .Values.aws.rolesAnywhere.enabled }}
+                - name: AWS_ROLES_ANYWHERE_ENABLED
+                  value: "true"
+                - name: AWS_ROLES_ANYWHERE_TRUST_ANCHOR_ARN
+                  value: {{ .Values.aws.rolesAnywhere.trustAnchorArn | quote }}
+                - name: AWS_ROLES_ANYWHERE_PROFILE_ARN
+                  value: {{ .Values.aws.rolesAnywhere.profileArn | quote }}
+                - name: AWS_ROLES_ANYWHERE_ROLE_ARN
+                  value: {{ .Values.aws.rolesAnywhere.roleArn | quote }}
+                - name: AWS_ROLES_ANYWHERE_CERT_PATH
+                  value: {{ .Values.aws.rolesAnywhere.certPath | quote }}
+                - name: AWS_ROLES_ANYWHERE_KEY_PATH
+                  value: {{ .Values.aws.rolesAnywhere.keyPath | quote }}
+                {{- end }}
+              volumeMounts:
+                - name: geoip-db
+                  mountPath: {{ .Values.collector.geoip.mountPath }}
+                  readOnly: true
+                {{- if .Values.aws.rolesAnywhere.enabled }}
+                - name: step-ca-tls
+                  mountPath: /var/run/secrets/step-ca
+                  readOnly: true
+                {{- end }}
+              resources:
+                {{- toYaml .Values.collector.resources | nindent 16 }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumes:
+            - name: geoip-db
+              persistentVolumeClaim:
+                claimName: {{ .Values.collector.geoip.pvcName }}
+                readOnly: true
+            {{- if .Values.aws.rolesAnywhere.enabled }}
+            - name: step-ca-tls
+              secret:
+                secretName: {{ .Values.certificate.secretName }}
+            {{- end }}
+{{- end }}
