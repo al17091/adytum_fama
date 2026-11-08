@@ -2,7 +2,7 @@
 # syntax=docker/dockerfile:1
 
 ARG NODE_VERSION=22
-ARG GO_VERSION=1.24
+ARG GO_VERSION=1.26
 
 # 1. Frontend Web Builder
 FROM node:${NODE_VERSION}-alpine AS web-builder
