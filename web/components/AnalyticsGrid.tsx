@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   BarChart3,
   Globe2,
@@ -8,6 +8,7 @@ import {
   ListFilter,
   ShieldAlert,
   Search,
+  Eye,
 } from "lucide-react";
 import {
   HourlyTrafficStats,
@@ -15,6 +16,7 @@ import {
   ActorStat,
   PublicBlockEvent,
 } from "../types";
+import { EventDetailModal } from "./EventDetailModal";
 
 interface AnalyticsGridProps {
   hourlySeries: HourlyTrafficStats[];
@@ -33,6 +35,8 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
   targetCountry,
   onTargetCountryChange,
 }) => {
+  const [selectedEvent, setSelectedEvent] = useState<PublicBlockEvent | null>(null);
+
   // Find max hourly total for proportional scaling
   const maxHourly = Math.max(
     1,
@@ -269,10 +273,9 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 <th className="py-2.5 px-3">Observed IP</th>
                 <th className="py-2.5 px-3">Our Classification</th>
                 <th className="py-2.5 px-3">Location</th>
-                <th className="py-2.5 px-3">ASN / Organization</th>
-                <th className="py-2.5 px-3">Target Path</th>
                 <th className="py-2.5 px-3">Vector</th>
                 <th className="py-2.5 px-3">User-Agent</th>
+                <th className="py-2.5 px-3 text-right">Details</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -321,7 +324,11 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                 });
 
                 return (
-                  <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                  <tr
+                    key={idx}
+                    onClick={() => setSelectedEvent(evt)}
+                    className="hover:bg-slate-800/40 cursor-pointer transition-colors group"
+                  >
                     {/* Timestamp */}
                     <td className="py-2.5 px-3 whitespace-nowrap text-slate-400">
                       {timeStr}
@@ -377,24 +384,6 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                       <span>{evt.city_name || evt.country_name || "Unknown"}</span>
                     </td>
 
-                    {/* ASN & Org */}
-                    <td className="py-2.5 px-3 whitespace-nowrap text-slate-400 max-w-[180px] truncate">
-                      {evt.asn ? `AS${evt.asn} ` : ""}
-                      {evt.as_org || "Unknown"}
-                    </td>
-
-                    {/* Target Path */}
-                    <td className="py-2.5 px-3 max-w-[200px]">
-                      <div className="flex items-center gap-1.5 font-mono text-xs truncate" title={evt.request_uri || "/"}>
-                        <span className="text-[10px] font-bold text-slate-400 bg-slate-800/80 px-1 py-0.2 rounded shrink-0">
-                          {evt.http_method || "GET"}
-                        </span>
-                        <span className="text-slate-100 font-semibold truncate">
-                          {evt.request_uri || "/"}
-                        </span>
-                      </div>
-                    </td>
-
                     {/* Vector */}
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <div className="flex flex-col gap-0.5 items-start">
@@ -414,10 +403,25 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
 
                     {/* User Agent */}
                     <td
-                      className="py-2.5 px-3 max-w-[220px] truncate text-slate-400 font-mono text-xs"
+                      className="py-2.5 px-3 max-w-[280px] truncate text-slate-400 font-mono text-xs"
                       title={evt.user_agent}
                     >
                       {evt.user_agent || "-"}
+                    </td>
+
+                    {/* Action: Details */}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedEvent(evt);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-cyan-950/70 border border-slate-700/80 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 text-[11px] font-mono transition-colors shadow-sm"
+                        title="View Full Event Details"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Inspect</span>
+                      </button>
                     </td>
                   </tr>
                 );
@@ -426,6 +430,12 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Event Details Modal */}
+      <EventDetailModal
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+      />
     </section>
   );
 };
