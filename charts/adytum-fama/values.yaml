@@ -4,7 +4,7 @@
 image:
   repository: ghcr.io/al17091/adytum_fama
   pullPolicy: IfNotPresent
-  tag: "0.1.2-rc.1"
+  tag: "0.1.2"
 
 imagePullSecrets: []
 nameOverride: ""

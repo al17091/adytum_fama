@@ -10,7 +10,7 @@ FROM node:${NODE_VERSION}-alpine AS web-builder
 WORKDIR /web
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY web/package.json web/pnpm-lock.yaml* ./
+COPY web/package.json web/pnpm-lock.yaml* web/pnpm-workspace.yaml* ./
 RUN pnpm install --frozen-lockfile || pnpm install
 
 COPY web/ ./
