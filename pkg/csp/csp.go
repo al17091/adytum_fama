@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -22,15 +21,12 @@ var (
 	// Extracts href="..." or src="..." attribute values
 	hrefAttrRe = regexp.MustCompile(`\bhref="([^"]+)"`)
 	srcAttrRe  = regexp.MustCompile(`\bsrc="([^"]+)"`)
-	// Extracts style.cssText="..." literals from compiled Next.js bundles (e.g. AppRouterAnnouncer)
-	cssTextLiteralRe = regexp.MustCompile(`\.style\.cssText="([^"]+)"`)
 )
 
 // Engine manages CSP Level 3 asset hashing, Subresource Integrity (SRI),
 // and per-request cryptographic nonce generation.
 type Engine struct {
 	assetIntegrity map[string]string // Maps URL path (e.g. "/guardinfo/_next/static/...") -> "sha256-<base64>"
-	styleAttrHash  []string          // Sorted "'sha256-<base64>'" expressions for framework cssText attributes
 }
 
 // NewEngine initializes the CSP v3 engine by scanning static assets from staticDir (if set) or staticFS.
@@ -38,8 +34,6 @@ func NewEngine(staticFS fs.FS, staticDir string) (*Engine, error) {
 	e := &Engine{
 		assetIntegrity: make(map[string]string),
 	}
-
-	styleHashSet := make(map[string]struct{})
 
 	walkFn := func(relPath string, data []byte) {
 		relPath = filepath.ToSlash(relPath)
@@ -51,18 +45,6 @@ func NewEngine(staticFS fs.FS, staticDir string) (*Engine, error) {
 			sri := "sha256-" + b64
 			e.assetIntegrity["/guardinfo/"+relPath] = sri
 			e.assetIntegrity["/"+relPath] = sri
-		}
-
-		if strings.HasSuffix(relPath, ".js") {
-			matches := cssTextLiteralRe.FindAllSubmatch(data, -1)
-			for _, m := range matches {
-				if len(m) > 1 && len(m[1]) > 0 {
-					sum := sha256.Sum256(m[1])
-					b64 := base64.StdEncoding.EncodeToString(sum[:])
-					expr := "'sha256-" + b64 + "'"
-					styleHashSet[expr] = struct{}{}
-				}
-			}
 		}
 	}
 
@@ -99,11 +81,6 @@ func NewEngine(staticFS fs.FS, staticDir string) (*Engine, error) {
 			return nil, fmt.Errorf("walking staticFS for CSP hashes: %w", err)
 		}
 	}
-
-	for expr := range styleHashSet {
-		e.styleAttrHash = append(e.styleAttrHash, expr)
-	}
-	sort.Strings(e.styleAttrHash)
 
 	return e, nil
 }
@@ -214,22 +191,14 @@ func (e *Engine) buildHTMLCSPHeader(nonce string, scriptHashes []string) string 
 	scriptSources = append(scriptSources, "'strict-dynamic'")
 	scriptSrcJoined := strings.Join(scriptSources, " ")
 
-	styleSrc := "'self'"
-	styleSrcAttr := "'none'"
-	if len(e.styleAttrHash) > 0 {
-		hashesJoined := strings.Join(e.styleAttrHash, " ")
-		styleSrc = fmt.Sprintf("'self' 'unsafe-hashes' %s", hashesJoined)
-		styleSrcAttr = fmt.Sprintf("'unsafe-hashes' %s", hashesJoined)
-	}
-
 	directives := []string{
 		"default-src 'none'",
 		"script-src " + scriptSrcJoined,
 		"script-src-elem " + scriptSrcJoined,
 		"script-src-attr 'none'",
-		"style-src " + styleSrc,
+		"style-src 'self'",
 		"style-src-elem 'self'",
-		"style-src-attr " + styleSrcAttr,
+		"style-src-attr 'none'",
 		"img-src 'self' data:",
 		"font-src 'self'",
 		"connect-src 'self'",

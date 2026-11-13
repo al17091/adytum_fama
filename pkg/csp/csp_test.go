@@ -9,12 +9,9 @@ import (
 )
 
 func TestEngine_TransformHTML_StrictCSPv3(t *testing.T) {
-	chunkContent := []byte(`console.log("chunk"); e.style.cssText="position:absolute";`)
+	chunkContent := []byte(`console.log("chunk");`)
 	chunkSum := sha256.Sum256(chunkContent)
 	expectedChunkSRI := "sha256-" + base64.StdEncoding.EncodeToString(chunkSum[:])
-
-	cssTextSum := sha256.Sum256([]byte("position:absolute"))
-	expectedStyleHash := "'sha256-" + base64.StdEncoding.EncodeToString(cssTextSum[:]) + "'"
 
 	inlineScript := `(self.__next_f=self.__next_f||[]).push([0])`
 	inlineSum := sha256.Sum256([]byte(inlineScript))
@@ -53,23 +50,27 @@ func TestEngine_TransformHTML_StrictCSPv3(t *testing.T) {
 		t.Fatalf("expected unique cryptographic nonces across requests, got identical outputs")
 	}
 
-	// 2. Zero unsafe-inline or unsafe-eval anywhere in CSP header
+	// 2. Zero unsafe-inline, unsafe-eval, or unsafe-hashes anywhere in CSP header
 	if strings.Contains(hdr1, "'unsafe-inline'") {
 		t.Errorf("CSP header must not contain 'unsafe-inline': %s", hdr1)
 	}
 	if strings.Contains(hdr1, "'unsafe-eval'") {
 		t.Errorf("CSP header must not contain 'unsafe-eval': %s", hdr1)
 	}
+	if strings.Contains(hdr1, "'unsafe-hashes'") {
+		t.Errorf("CSP header must not contain 'unsafe-hashes': %s", hdr1)
+	}
 
-	// 3. Verify strict-dynamic, SRI hash, and inline script hash in CSP header
+	// 3. Verify strict-dynamic, SRI hash, inline script hash, and style-src-attr 'none' in CSP header
 	for _, required := range []string{
 		"default-src 'none'",
 		"'strict-dynamic'",
 		"'" + expectedChunkSRI + "'",
 		expectedInlineHash,
 		"script-src-attr 'none'",
+		"style-src 'self'",
 		"style-src-elem 'self'",
-		expectedStyleHash,
+		"style-src-attr 'none'",
 		"object-src 'none'",
 		"base-uri 'none'",
 		"frame-ancestors 'none'",
