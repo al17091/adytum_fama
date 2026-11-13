@@ -91,7 +91,15 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
             const modsecPct =
               ((stat.foramen_modsec_blocks + stat.retis_modsec_blocks) / hTotal) * 100;
 
-            const timeLabel = new Date(stat.bucket_time).getHours() + ":00";
+            const legitH = (barHeightPct * legitPct) / 100;
+            const wafH = (barHeightPct * wafPct) / 100;
+            const dropH = (barHeightPct * dropPct) / 100;
+            const modsecH = (barHeightPct * modsecPct) / 100;
+
+            const legitY = 100 - legitH;
+            const wafY = legitY - wafH;
+            const dropY = wafY - dropH;
+            const modsecY = dropY - modsecH;
 
             return (
               <div
@@ -123,16 +131,26 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                   </div>
                 </div>
 
-                {/* Stacked bar container */}
-                <div
-                  className="w-full rounded-t overflow-hidden flex flex-col-reverse transition-all duration-300 group-hover:brightness-125"
-                  style={{ height: `${barHeightPct}%` }}
+                {/* Stacked bar container (CSP v3 strict: SVG presentation attributes instead of inline style) */}
+                <svg
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                  className="w-full h-full rounded-t overflow-hidden block transition-all duration-300 group-hover:brightness-125"
+                  aria-hidden="true"
                 >
-                  <div className="w-full bg-cyan-400/80" style={{ height: `${legitPct}%` }} />
-                  <div className="w-full bg-purple-500" style={{ height: `${wafPct}%` }} />
-                  <div className="w-full bg-teal-400" style={{ height: `${dropPct}%` }} />
-                  <div className="w-full bg-rose-500" style={{ height: `${modsecPct}%` }} />
-                </div>
+                  {legitH > 0 && (
+                    <rect x={0} y={legitY} width={100} height={legitH} className="fill-cyan-400/80" />
+                  )}
+                  {wafH > 0 && (
+                    <rect x={0} y={wafY} width={100} height={wafH} className="fill-purple-500" />
+                  )}
+                  {dropH > 0 && (
+                    <rect x={0} y={dropY} width={100} height={dropH} className="fill-teal-400" />
+                  )}
+                  {modsecH > 0 && (
+                    <rect x={0} y={modsecY} width={100} height={modsecH} className="fill-rose-500" />
+                  )}
+                </svg>
               </div>
             );
           })}
@@ -189,12 +207,21 @@ export const AnalyticsGrid: React.FC<AnalyticsGridProps> = ({
                   <span className="text-slate-400 text-[11px]">
                     {c.count.toLocaleString()} hits
                   </span>
-                  <div className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden hidden sm:block">
-                    <div
-                      className="h-full bg-cyan-400 rounded-full"
-                      style={{ width: `${Math.min(100, c.percentage)}%` }}
+                  <svg
+                    viewBox="0 0 100 6"
+                    preserveAspectRatio="none"
+                    className="w-16 h-1.5 bg-slate-800 rounded-full overflow-hidden hidden sm:block"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x={0}
+                      y={0}
+                      width={Math.max(0, Math.min(100, c.percentage))}
+                      height={6}
+                      rx={3}
+                      className="fill-cyan-400"
                     />
-                  </div>
+                  </svg>
                   <span className="text-cyan-300 font-bold w-10 text-right">
                     {c.percentage.toFixed(1)}%
                   </span>

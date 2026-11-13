@@ -23,8 +23,10 @@ export const KPIOverlay: React.FC<KPIOverlayProps> = ({
   filterLayer,
   onFilterLayerChange,
 }) => {
-  const legitPercent =
-    totalRequests > 0 ? ((legitimateRequests / totalRequests) * 100).toFixed(1) : "0.0";
+  const legitRatioNum =
+    totalRequests > 0 ? Math.max(0, Math.min(100, (legitimateRequests / totalRequests) * 100)) : 0;
+  const legitPercent = legitRatioNum.toFixed(1);
+  const interceptedRatioNum = Math.max(0, Math.min(100 - legitRatioNum, Number(maliciousRatio) || 0));
 
   return (
     <div className="flex flex-col gap-3 max-w-sm w-full">
@@ -41,19 +43,33 @@ export const KPIOverlay: React.FC<KPIOverlayProps> = ({
           {totalRequests.toLocaleString()}{" "}
           <span className="text-xs text-slate-400 font-normal">reqs</span>
         </div>
-        {/* Progress bar */}
-        <div className="w-full h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden flex">
-          <div
-            className="h-full bg-cyan-400 transition-all duration-500"
-            style={{ width: `${legitPercent}%` }}
-            title={`Legitimate: ${legitPercent}%`}
-          />
-          <div
-            className="h-full bg-rose-500 transition-all duration-500"
-            style={{ width: `${maliciousRatio}%` }}
-            title={`Intercepted: ${maliciousRatio}%`}
-          />
-        </div>
+        {/* Progress bar (CSP v3 strict: SVG presentation attributes instead of inline style) */}
+        <svg
+          viewBox="0 0 100 6"
+          preserveAspectRatio="none"
+          className="w-full h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden block"
+          role="img"
+          aria-label={`Legitimate ${legitPercent}%, Intercepted ${maliciousRatio}%`}
+        >
+          <rect
+            x={0}
+            y={0}
+            width={legitRatioNum}
+            height={6}
+            className="fill-cyan-400 transition-all duration-500"
+          >
+            <title>{`Legitimate: ${legitPercent}%`}</title>
+          </rect>
+          <rect
+            x={legitRatioNum}
+            y={0}
+            width={interceptedRatioNum}
+            height={6}
+            className="fill-rose-500 transition-all duration-500"
+          >
+            <title>{`Intercepted: ${maliciousRatio}%`}</title>
+          </rect>
+        </svg>
       </div>
 
       {/* Legitimate vs Intercepted Dual Cards */}

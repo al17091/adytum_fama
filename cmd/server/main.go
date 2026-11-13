@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/al17091/adytum_fama/pkg/csp"
 	"github.com/al17091/adytum_fama/pkg/storage"
 	"github.com/al17091/adytum_fama/web"
 )
@@ -31,6 +32,7 @@ type Server struct {
 	db        *storage.DB
 	staticFS  fs.FS
 	staticDir string
+	cspEngine *csp.Engine
 }
 
 func main() {
@@ -61,10 +63,16 @@ func main() {
 		log.Fatalf("[FATAL] Failed resolving embedded static assets: %v", err)
 	}
 
+	cspEngine, err := csp.NewEngine(subFS, staticDir)
+	if err != nil {
+		log.Fatalf("[FATAL] Failed initializing CSP v3 engine: %v", err)
+	}
+
 	srv := &Server{
 		db:        db,
 		staticFS:  subFS,
 		staticDir: staticDir,
+		cspEngine: cspEngine,
 	}
 
 	mux := http.NewServeMux()
@@ -90,7 +98,7 @@ func main() {
 
 	httpServer := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      withSecurityHeaders(mux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -211,6 +219,37 @@ func (s *Server) handleQueryEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Content-Security-Policy", csp.StrictAPICSP())
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) serveHTMLBytes(w http.ResponseWriter, r *http.Request, rawHTML []byte, statusCode int) {
+	transformed, cspHeader, err := s.cspEngine.TransformHTML(rawHTML)
+	if err != nil {
+		log.Printf("[ERROR] Failed transforming HTML for CSP v3: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Security-Policy", cspHeader)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Dynamic per-request cryptographic nonces require fresh HTML responses
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(statusCode)
+	if r.Method != http.MethodHead {
+		_, _ = w.Write(transformed)
+	}
+}
+
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	// Trim prefix "/guardinfo"
 	relPath := strings.TrimPrefix(r.URL.Path, "/guardinfo")
@@ -222,8 +261,6 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	// If asset is inside _next/static, apply immutable long-term caching
 	if strings.HasPrefix(relPath, "_next/static/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else if strings.HasSuffix(relPath, ".html") {
-		w.Header().Set("Cache-Control", "public, max-age=300, must-revalidate")
 	}
 
 	// Try multiple candidate file paths for clean URLs (e.g. "events" -> "events/index.html", "events.html")
@@ -241,12 +278,26 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		for _, c := range candidates {
 			filePath := path.Join(s.staticDir, c)
 			if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+				if strings.HasSuffix(c, ".html") {
+					if data, readErr := os.ReadFile(filePath); readErr == nil {
+						s.serveHTMLBytes(w, r, data, http.StatusOK)
+						return
+					}
+				}
 				http.ServeFile(w, r, filePath)
 				return
 			}
 		}
-		// Fallback to index.html for SPA
-		http.ServeFile(w, r, path.Join(s.staticDir, "index.html"))
+		// Fallback to 404.html or index.html
+		if data, err := os.ReadFile(path.Join(s.staticDir, "404.html")); err == nil {
+			s.serveHTMLBytes(w, r, data, http.StatusNotFound)
+			return
+		}
+		if data, err := os.ReadFile(path.Join(s.staticDir, "index.html")); err == nil {
+			s.serveHTMLBytes(w, r, data, http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
 		return
 	}
 
@@ -257,13 +308,19 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 			stat, statErr := f.Stat()
 			if statErr == nil && !stat.IsDir() {
 				defer f.Close()
+				if strings.HasSuffix(c, ".html") {
+					data, readErr := io.ReadAll(f)
+					if readErr == nil {
+						s.serveHTMLBytes(w, r, data, http.StatusOK)
+						return
+					}
+				}
 				if rs, ok := f.(io.ReadSeeker); ok {
 					http.ServeContent(w, r, path.Base(c), time.Time{}, rs)
 					return
 				}
 				data, readErr := io.ReadAll(f)
 				if readErr == nil {
-					w.Header().Set("Content-Type", "text/html; charset=utf-8")
 					_, _ = w.Write(data)
 					return
 				}
@@ -272,7 +329,15 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fallback to index.html for client-side routing
+	// Fallback to 404.html if present, otherwise index.html
+	if notFoundFile, nfErr := s.staticFS.Open("404.html"); nfErr == nil {
+		defer notFoundFile.Close()
+		if data, readErr := io.ReadAll(notFoundFile); readErr == nil {
+			s.serveHTMLBytes(w, r, data, http.StatusNotFound)
+			return
+		}
+	}
+
 	indexFile, indexErr := s.staticFS.Open("index.html")
 	if indexErr != nil {
 		http.NotFound(w, r)
@@ -280,6 +345,5 @@ func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	defer indexFile.Close()
 	data, _ := io.ReadAll(indexFile)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	s.serveHTMLBytes(w, r, data, http.StatusOK)
 }
